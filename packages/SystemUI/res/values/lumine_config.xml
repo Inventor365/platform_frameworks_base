@@ -26,4 +26,7 @@
 
     <!-- If not zero, limits the internal screen recorder's framerate to the set value. -->
     <integer name="config_screenRecorderMaxFramerate">0</integer>
+
+    <!-- Notification counter -->
+    <integer name="status_bar_notification_info_maxnum">999</integer>
 </resources>
