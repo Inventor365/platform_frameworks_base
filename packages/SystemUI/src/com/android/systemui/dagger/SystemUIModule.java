@@ -89,6 +89,7 @@ import com.android.systemui.log.table.TableLogBuffer;
 import com.android.systemui.log.table.impl.TableLogBufferModule;
 import com.android.systemui.lowlight.dagger.LowLightModule;
 import com.android.systemui.lowlightclock.dagger.LowLightClockModule;
+import com.android.systemui.luminedroid.LumineModule;
 import com.android.systemui.mediaprojection.MediaProjectionModule;
 import com.android.systemui.mediaprojection.appselector.MediaProjectionActivitiesModule;
 import com.android.systemui.mediaprojection.taskswitcher.MediaProjectionTaskSwitcherModule;
@@ -264,6 +265,7 @@ import javax.inject.Named;
         KeyguardDataQuickAffordanceModule.class,
         LetterboxModule.class,
         LogModule.class,
+        LumineModule.class,
         MediaProjectionActivitiesModule.class,
         MediaProjectionModule.class,
         MediaProjectionTaskSwitcherModule.class,
