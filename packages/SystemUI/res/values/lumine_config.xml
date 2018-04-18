@@ -21,6 +21,6 @@
 
     <!-- Extra Quick Settings tiles -->
     <string name="quick_settings_tiles_extra" translatable="false">
-    ambient_display,caffeine,heads_up,sync,usb_tether
+    ambient_display,aod,caffeine,heads_up,sync,usb_tether
     </string>
 </resources>
