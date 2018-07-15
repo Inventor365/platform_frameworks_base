@@ -6795,7 +6795,7 @@ public final class Settings {
         public static final String SCREEN_FLASH_NOTIFICATION_COLOR =
                 "screen_flash_notification_color_global";
 
-	/**
+        /**
          * Color temperature of the display during the day
          * @hide
          */
@@ -6920,6 +6920,18 @@ public final class Settings {
          * @hide
          */
         public static final String FORCE_FULLSCREEN_CUTOUT_APPS = "force_full_screen_cutout_apps";
+
+        /**
+         * Whether to show the clock in the right or left position or show it in the
+         * center
+         * 0: show the clock in the left position (LTR)
+         * 1: show the clock in the center
+         * 2: show the clock in the right position (LTR)
+         * default: 0
+         *
+         * @hide
+         */
+        public static final String STATUS_BAR_CLOCK = "status_bar_clock";
 
         /**
          * IMPORTANT: If you add a new public settings you also have to add it to
