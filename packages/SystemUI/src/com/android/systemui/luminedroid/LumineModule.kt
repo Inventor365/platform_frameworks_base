@@ -27,6 +27,7 @@ import com.android.systemui.qs.tiles.CellularTileLegacy
 import com.android.systemui.qs.tiles.HeadsUpTile
 import com.android.systemui.qs.tiles.SyncTile
 import com.android.systemui.qs.tiles.UsbTetherTile
+import com.android.systemui.qs.tiles.VpnTile
 import com.android.systemui.qs.tiles.WifiTileLegacy
 import com.android.systemui.qs.tiles.base.shared.model.QSTileConfig;
 import com.android.systemui.qs.tiles.base.shared.model.QSTilePolicy;
@@ -82,6 +83,12 @@ interface LumineModule {
     @IntoMap
     @StringKey(UsbTetherTile.TILE_SPEC)
     fun bindUsbTetherTile(usbTetherTile: UsbTetherTile): QSTileImpl<*>
+
+    /** Inject VpnTile into tileMap in QSModule */
+    @Binds
+    @IntoMap
+    @StringKey(VpnTile.TILE_SPEC)
+    fun bindVpnTile(vpnTile: VpnTile): QSTileImpl<*>
 
     /** Inject WifiTileLegacy into tileMap in QSModule */
     @Binds
@@ -194,6 +201,21 @@ interface LumineModule {
                 category = TileCategory.CONNECTIVITY
             )
         }
+
+        @Provides
+        @IntoMap
+        @StringKey(VpnTile.TILE_SPEC)
+        fun provideVpnTileConfig(uiEventLogger: QsEventLogger): QSTileConfig =
+            QSTileConfig(
+                tileSpec = TileSpec.create(VpnTile.TILE_SPEC),
+                uiConfig =
+                    QSTileUIConfig.Resource(
+                        iconRes = R.drawable.ic_qs_vpn,
+                        labelRes = R.string.quick_settings_vpn_label
+                    ),
+                instanceId = uiEventLogger.getNewInstanceId(),
+                category = TileCategory.CONNECTIVITY,
+            )
 
         @Provides
         @IntoMap

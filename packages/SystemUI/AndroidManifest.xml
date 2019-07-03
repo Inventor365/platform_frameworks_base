@@ -433,6 +433,9 @@
     <protected-broadcast android:name="com.google.android.systemui.smartspace.ENABLE_UPDATE"/>
     <protected-broadcast android:name="com.google.android.systemui.smartspace.EXPIRE_EVENT"/>
 
+    <!-- QS Tiles -->
+    <uses-permission android:name="android.permission.MAINLINE_NETWORK_STACK" />
+
     <application
         android:name=".application.impl.SystemUIApplicationImpl"
         android:persistent="true"
