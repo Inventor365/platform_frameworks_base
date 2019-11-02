@@ -95,6 +95,7 @@ public class AmbientDisplayConfiguration {
         return pulseOnNotificationEnabled(user)
                 || pulseOnLongPressEnabled(user)
                 || alwaysOnEnabled(user)
+                || isAmbientTickerEnabled(user)
                 || wakeLockScreenGestureEnabled(user)
                 || wakeDisplayGestureEnabled(user)
                 || pickupGestureEnabled(user)
@@ -121,6 +122,11 @@ public class AmbientDisplayConfiguration {
     public boolean userPulseOnNotificationEnabled(int user) {
         return boolSettingDefaultOn(Settings.Secure.DOZE_FOR_NOTIFICATIONS, user)
                 && pulseOnNotificationEnabled(user);
+    }
+
+    /** @hide */
+    public boolean isAmbientTickerEnabled(int user) {
+        return boolSettingDefaultOff(Settings.Secure.PULSE_ON_NEW_TRACKS, user);
     }
 
     /** @hide */
