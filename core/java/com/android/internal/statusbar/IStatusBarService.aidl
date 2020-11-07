@@ -251,4 +251,9 @@ interface IStatusBarService
     void toggleCameraFlash();
 
     void restartSystemUI();
+
+    /**
+     * Starts the default assistant app.
+     */
+    void startAssist(in Bundle args);
 }
