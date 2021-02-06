@@ -23,4 +23,7 @@
     <string name="quick_settings_tiles_extra" translatable="false">
     ambient_display,aod,caffeine,heads_up,sync,usb_tether
     </string>
+
+    <!-- If not zero, limits the internal screen recorder's framerate to the set value. -->
+    <integer name="config_screenRecorderMaxFramerate">0</integer>
 </resources>
