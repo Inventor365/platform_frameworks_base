@@ -285,6 +285,7 @@ import com.android.server.uri.UriGrantsManagerInternal;
 import com.android.server.wm.utils.WindowStyleCache;
 import com.android.wm.shell.Flags;
 
+import com.android.internal.util.luminedroid.cutout.CutoutFullscreenController;
 import org.lineageos.internal.applications.LineageActivityManager;
 
 import java.io.BufferedReader;
@@ -805,6 +806,8 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
 
     private Set<Integer> mProfileOwnerUids = new ArraySet<Integer>();
 
+    private CutoutFullscreenController mCutoutFullscreenController;
+
     // Lineage sdk activity related helper
     private LineageActivityManager mLineageActivityManager;
 
@@ -913,6 +916,9 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
         // LineageActivityManager depends on settings so we can initialize only
         // after providers are available.
         mLineageActivityManager = new LineageActivityManager(mContext);
+
+        // Force full screen for devices with cutout
+        mCutoutFullscreenController = new CutoutFullscreenController(mContext);
     }
 
     public void retrieveSettings(ContentResolver resolver) {
@@ -7640,5 +7646,11 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
 
     public boolean shouldForceLongScreen(String packageName) {
         return mLineageActivityManager.shouldForceLongScreen(packageName);
+    }
+
+    public boolean shouldForceCutoutFullscreen(String packageName) {
+        synchronized (this) {
+            return mCutoutFullscreenController.shouldForceCutoutFullscreen(packageName);
+        }
     }
 }
