@@ -339,6 +339,8 @@ import java.util.TreeSet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 
+import org.luminedroid.platform.internal.power.PowerOffAlarmService;
+
 /**
  * Entry point to {@code system_server}.
  */
@@ -1809,6 +1811,10 @@ public final class SystemServer implements Dumpable {
 
             t.traceBegin("StartLogcatManager");
             mSystemServiceManager.startService(LogcatManagerService.class);
+            t.traceEnd();
+
+            t.traceBegin("StartPowerOffAlarmService");
+            mSystemServiceManager.startService(PowerOffAlarmService.class);
             t.traceEnd();
 
             if (!isWatch && !isTv && !isAutomotive
