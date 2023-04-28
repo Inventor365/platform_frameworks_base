@@ -66,4 +66,13 @@
     <string name="qs_preferred_network_nr">5G / NR</string>
     <string name="qs_preferred_network_3g">3G</string>
     <string name="qs_preferred_network_unsupported">Unsupported</string>
+
+    <!-- Weather -->
+    <string name="weather_condition_clouds">Cloudy</string>
+    <string name="weather_condition_rain">Rainy</string>
+    <string name="weather_condition_clear">Clear Sky</string>
+    <string name="weather_condition_storm">Stormy</string>
+    <string name="weather_condition_snow">Snowy</string>
+    <string name="weather_condition_wind">Windy</string>
+    <string name="weather_condition_mist">Misty</string>
 </resources>
