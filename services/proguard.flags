@@ -137,3 +137,4 @@
 # SDK
 -keep,allowoptimization,allowaccessmodification class luminedroid.** { *; }
 -keep,allowoptimization,allowaccessmodification class org.luminedroid.** { *; }
+-keep,allowoptimization,allowaccessmodification class vendor.lineage.** { *; }
