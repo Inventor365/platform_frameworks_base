@@ -150,6 +150,11 @@ fun BrightnessSlider(
     showToast: () -> Unit = {},
     hapticsViewModelFactory: SliderHapticsViewModel.Factory,
 ) {
+    val context = LocalContext.current
+    val cr = context.contentResolver
+
+    var hapticsEnabled by remember { mutableStateOf(readEnableHaptics(cr)) }
+
     var value by remember(gammaValue) { mutableIntStateOf(gammaValue) }
     val animatedValue by
         animateFloatAsState(targetValue = value.toFloat(), label = "BrightnessSliderAnimatedValue")
@@ -158,17 +163,21 @@ fun BrightnessSlider(
     val enabled = !isRestricted
     val contentDescription = stringResource(R.string.accessibility_brightness)
     val interactionSource = remember { MutableInteractionSource() }
-    val hapticsViewModel: SliderHapticsViewModel =
-        rememberViewModel(traceName = "SliderHapticsViewModel") {
-            hapticsViewModelFactory.create(
-                interactionSource,
-                floatValueRange,
-                Orientation.Horizontal,
-                SliderHapticFeedbackConfig(
-                    maxVelocityToScale = 1f /* slider progress(from 0 to 1) per sec */
-                ),
-                SeekableSliderTrackerConfig(),
-            )
+    val hapticsViewModel: SliderHapticsViewModel? =
+        if (hapticsEnabled) {
+            rememberViewModel(traceName = "SliderHapticsViewModel") {
+                hapticsViewModelFactory.create(
+                    interactionSource,
+                    floatValueRange,
+                    Orientation.Horizontal,
+                    SliderHapticFeedbackConfig(
+                        maxVelocityToScale = 1f /* slider progress(from 0 to 1) per sec */
+                    ),
+                    SeekableSliderTrackerConfig(),
+                )
+            }
+        } else {
+            null
         }
     val colors = colors()
 
@@ -183,7 +192,6 @@ fun BrightnessSlider(
                 iconResProvider(percentage)
             }
         }
-    val context = LocalContext.current
     val painter: Painter by
         produceState<Painter>(
             initialValue = ColorPainter(Color.Transparent),
@@ -218,7 +226,6 @@ fun BrightnessSlider(
         }
     }
 
-    val cr = context.contentResolver
     val hasAutoBrightness = context.resources.getBoolean(
         com.android.internal.R.bool.config_automatic_brightness_available
     )
@@ -229,12 +236,18 @@ fun BrightnessSlider(
             override fun onChange(selfChange: Boolean) {
                 context.mainExecutor.execute {
                     showAutoBrightness = readShowAutoBrightness(cr)
+                    hapticsEnabled = readEnableHaptics(cr)
                 }
             }
         }
 
         cr.registerContentObserver(
             Settings.Secure.getUriFor(Settings.Secure.QS_SHOW_AUTO_BRIGHTNESS),
+            false, observer, UserHandle.USER_ALL
+        )
+
+        cr.registerContentObserver(
+            Settings.System.getUriFor(Settings.System.QS_BRIGHTNESS_SLIDER_HAPTIC),
             false, observer, UserHandle.USER_ALL
         )
 
@@ -255,7 +268,7 @@ fun BrightnessSlider(
             onValueChange = {
                 if (enabled) {
                     if (!overriddenByAppState) {
-                        hapticsViewModel.onValueChange(it)
+                        hapticsViewModel?.onValueChange(it)
                         value = it.toInt()
                         onDrag(value)
                     }
@@ -264,7 +277,7 @@ fun BrightnessSlider(
             onValueChangeFinished = {
                 if (enabled) {
                     if (!overriddenByAppState) {
-                        hapticsViewModel.onValueChangeEnded()
+                        hapticsViewModel?.onValueChangeEnded()
                         onStop(value)
                     }
                 }
@@ -413,6 +426,16 @@ private fun readShowAutoBrightness(cr: ContentResolver): Boolean =
     try {
         Settings.Secure.getIntForUser(
             cr, Settings.Secure.QS_SHOW_AUTO_BRIGHTNESS,
+            1, UserHandle.USER_CURRENT
+        ) != 0
+    } catch (_: Throwable) {
+        false
+    }
+
+private fun readEnableHaptics(cr: ContentResolver): Boolean =
+    try {
+        Settings.System.getIntForUser(
+            cr, Settings.System.QS_BRIGHTNESS_SLIDER_HAPTIC,
             1, UserHandle.USER_CURRENT
         ) != 0
     } catch (_: Throwable) {
