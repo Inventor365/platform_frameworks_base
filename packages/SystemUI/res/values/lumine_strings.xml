@@ -71,4 +71,7 @@
 
     <!-- Button to restart SystemUI, within the Restart Options dialog -->
     <string name="global_action_restart_systemui">SystemUI</string>
+
+    <!-- Face unlock -->
+    <string name="face_unlock_recognizing">Recognizing face...</string>
 </resources>
