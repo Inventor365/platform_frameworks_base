@@ -2664,6 +2664,7 @@ public final class DisplayManagerService extends SystemService {
         Trace.traceBegin(Trace.TRACE_TAG_POWER, "handleLogicalDisplaySwappedLocked");
         try {
             handleLogicalDisplayChangedLocked(display);
+            updateLogicalDisplayState(display);
 
             final int displayId = display.getDisplayIdLocked();
             if (displayId == Display.DEFAULT_DISPLAY) {
