@@ -21,7 +21,7 @@
 
     <!-- Extra Quick Settings tiles -->
     <string name="quick_settings_tiles_extra" translatable="false">
-    ambient_display,aod,caffeine,heads_up,sync,usb_tether
+    ambient_display,aod,caffeine,cell,heads_up,sync,usb_tether,wifi
     </string>
 
     <!-- If not zero, limits the internal screen recorder's framerate to the set value. -->
