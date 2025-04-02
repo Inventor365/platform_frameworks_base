@@ -2887,6 +2887,10 @@ public final class SystemServer implements Dumpable {
                 t.traceEnd();
             }
 
+            t.traceBegin("GameSpaceManagerService");
+            mSystemServiceManager.startService(GameSpaceManagerService.class);
+            t.traceEnd();
+
             mSystemServiceManager.startService(HideAppListService.class);
         }
 
