@@ -265,4 +265,13 @@ public class LumineUtils {
         }
         return NO_CUTOUT;
     }
+
+    public static void restartSystemUI() {
+        final IStatusBarService mBarService = IStatusBarService.Stub.asInterface(
+                ServiceManager.getService(Context.STATUS_BAR_SERVICE));
+        try {
+            mBarService.restartSystemUI();
+        } catch (RemoteException e) {
+        }
+    }
 }
