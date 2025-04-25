@@ -51,4 +51,7 @@
 
     <!-- Lock gesture -->
     <java-symbol type="string" name="gesture_locked_warning" />
+
+    <!-- Game Space -->
+    <java-symbol type="string" name="gamespace_new_game_added" />
 </resources>
