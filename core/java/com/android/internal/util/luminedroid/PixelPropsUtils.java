@@ -41,6 +41,7 @@ import android.util.Log;
 import android.view.WindowManager;
 
 import com.android.internal.R;
+import com.android.internal.util.luminedroid.KeyProviderManager;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
