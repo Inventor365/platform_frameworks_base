@@ -108,4 +108,7 @@
 
     <!-- Notification counter -->
     <string name="status_bar_notification_info_overflow" translatable="false">\u221E</string>
+
+    <!-- QS button to enable adaptive brightness -->
+    <string name="accessibility_adaptive_brightness">Adaptive brightness</string>
 </resources>
