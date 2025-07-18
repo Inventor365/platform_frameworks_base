@@ -157,6 +157,7 @@ import com.android.systemui.plugins.PluginManager;
 import com.android.systemui.plugins.qs.QS;
 import com.android.systemui.plugins.statusbar.StatusBarStateController;
 import com.android.systemui.power.domain.interactor.PowerInteractor;
+import com.android.systemui.pulse.PulseViewController;
 import com.android.systemui.qs.QSFragmentLegacy;
 import com.android.systemui.qs.QSPanelController;
 import com.android.systemui.qs.composefragment.QSFragmentCompose;
@@ -469,6 +470,7 @@ public class CentralSurfacesImpl implements CoreStartable, CentralSurfaces {
     private final UserTracker mUserTracker;
     private final ActivityStarter mActivityStarter;
     private final MediaViewController mMediaViewController;
+    private final PulseViewController mPulseViewController;
 
     private final DisplayMetrics mDisplayMetrics;
 
@@ -729,7 +731,8 @@ public class CentralSurfacesImpl implements CoreStartable, CentralSurfaces {
             QuickAccessWalletController walletController,
             WindowManager windowManager,
             WindowManagerProvider windowManagerProvider,
-            MediaViewController mediaViewController
+            MediaViewController mediaViewController,
+            PulseViewController pulseViewController
     ) {
         mContext = context;
         mNotificationsController = notificationsController;
@@ -875,6 +878,7 @@ public class CentralSurfacesImpl implements CoreStartable, CentralSurfaces {
         mWindowManager = windowManager;
         mWindowManagerProvider = windowManagerProvider;
         mMediaViewController = mediaViewController;
+        mPulseViewController = pulseViewController;
     }
 
     private void initBubbles(Bubbles bubbles) {
@@ -1114,6 +1118,7 @@ public class CentralSurfacesImpl implements CoreStartable, CentralSurfaces {
                         () -> mTopUiController.setRequestTopUi(requestTopUi, componentTag)
                 )));
         getNotifContainerParentView().addView(mMediaViewController.getMediaArtScrim(), 0);
+        getNotifContainerParentView().addView(mPulseViewController.getPulseView(), 1);
     }
 
     private ViewGroup getNotifContainerParentView() {
