@@ -18,4 +18,8 @@
 
     <!-- Whether to play turbulence noise after clicking the play button -->
     <bool name="config_turbulenceNoise">true</bool>
+
+    <!-- Extra Quick Settings tiles -->
+    <string name="quick_settings_tiles_extra" translatable="false">
+    </string>
 </resources>
