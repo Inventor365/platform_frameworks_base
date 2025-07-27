@@ -132,7 +132,8 @@ public class SystemSettings {
                 Settings.System.CV_PREFERRED_INTENSITY,
 		Settings.System.ADVANCED_REBOOT,
                 Settings.System.STATUS_BAR_SHOW_BATTERY_PERCENT,
-                Settings.System.STATUS_BAR_BATTERY_STYLE
+                Settings.System.STATUS_BAR_BATTERY_STYLE,
+                Settings.System.SHADE_BLUR_RADIUS
         ));
         if (Flags.backUpSmoothDisplayAndForcePeakRefreshRate()) {
             settings.add(Settings.System.PEAK_REFRESH_RATE);

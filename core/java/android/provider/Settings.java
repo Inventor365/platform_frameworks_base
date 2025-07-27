@@ -7280,6 +7280,12 @@ public final class Settings {
         public static final String STATUS_BAR_CLOCK_DATE_FORMAT = "status_bar_clock_date_format";
 
         /**
+         * Customizable notification shade blur radius (in dp).
+         * @hide
+         */
+        public static final String SHADE_BLUR_RADIUS = "shade_blur_radius";
+
+        /**
          * Keys we no longer back up under the current schema, but want to continue to
          * process when restoring historical backup datasets.
          *
