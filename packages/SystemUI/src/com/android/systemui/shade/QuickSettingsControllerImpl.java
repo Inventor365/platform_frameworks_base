@@ -40,11 +40,13 @@ import android.graphics.Rect;
 import android.graphics.Region;
 import android.os.Handler;
 import android.os.UserHandle;
+import android.provider.Settings;
 import android.util.IndentingPrintWriter;
 import android.util.Log;
 import android.util.MathUtils;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
+import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
@@ -89,6 +91,7 @@ import com.android.systemui.statusbar.PulseExpansionHandler;
 import com.android.systemui.statusbar.QsFrameTranslateController;
 import com.android.systemui.statusbar.StatusBarState;
 import com.android.systemui.statusbar.notification.domain.interactor.ActiveNotificationsInteractor;
+import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow;
 import com.android.systemui.statusbar.notification.stack.AmbientState;
 import com.android.systemui.statusbar.notification.stack.NotificationStackScrollLayout;
 import com.android.systemui.statusbar.notification.stack.NotificationStackScrollLayoutController;
@@ -103,6 +106,7 @@ import com.android.systemui.statusbar.phone.StatusBarKeyguardViewManager;
 import com.android.systemui.statusbar.policy.CastController;
 import com.android.systemui.statusbar.policy.KeyguardStateController;
 import com.android.systemui.statusbar.policy.SplitShadeStateController;
+import com.android.systemui.tuner.TunerService;
 import com.android.systemui.user.domain.interactor.SelectedUserInteractor;
 import com.android.systemui.util.LargeScreenUtils;
 import com.android.systemui.util.ScrimUtils;
@@ -128,6 +132,9 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
     public static final String TAG = "QuickSettingsController";
 
     public static final int SHADE_BACK_ANIM_SCALE_MULTIPLIER = 100;
+
+    private static final String NOTIFICATION_ROW_TRANSPARENCY =
+            Settings.Secure.NOTIFICATION_ROW_TRANSPARENCY;
 
     private QS mQs;
     private final Lazy<NotificationPanelViewController> mPanelViewControllerLazy;
@@ -171,6 +178,7 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
     private final AccessibilityManager mAccessibilityManager;
     private final MetricsLogger mMetricsLogger;
     private final Resources mResources;
+    private final TunerService mTunerService;
 
     /** Whether the notifications are displayed full width (no margins on the side). */
     private boolean mIsFullWidth;
@@ -351,7 +359,8 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
             Lazy<CommunalTransitionViewModel> communalTransitionViewModelLazy,
             Lazy<LargeScreenHeaderHelper> largeScreenHeaderHelperLazy,
             WindowManagerProvider windowManagerProvider,
-            SelectedUserInteractor selectedUserInteractor
+            SelectedUserInteractor selectedUserInteractor,
+            TunerService tunerService
     ) {
         SceneContainerFlag.assertInLegacyMode();
         mPanelViewControllerLazy = panelViewControllerLazy;
@@ -399,6 +408,7 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         mActiveNotificationsInteractor = activeNotificationsInteractor;
         mCommunalTransitionViewModelLazy = communalTransitionViewModelLazy;
         mJavaAdapter = javaAdapter;
+        mTunerService = tunerService;
 
         mLockscreenShadeTransitionController.addCallback(new LockscreenShadeTransitionCallback());
 
@@ -2202,7 +2212,8 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
     }
 
     /** */
-    public final class QsFragmentListener implements FragmentHostManager.FragmentListener {
+    public final class QsFragmentListener implements FragmentHostManager.FragmentListener,
+            TunerService.Tunable {
         private boolean mPreviouslyVisibleMedia = false;
 
         /** */
@@ -2259,12 +2270,14 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
                     false, mOneFingerQuickSettingsInterceptObserver,
                     UserHandle.USER_ALL);
             mOneFingerQuickSettingsInterceptObserver.onChange(true);
+            mTunerService.addTunable(this, NOTIFICATION_ROW_TRANSPARENCY);
             updateExpansion();
         }
 
         /** */
         @Override
         public void onFragmentViewDestroyed(String tag, Fragment fragment) {
+            mTunerService.removeTunable(this);
             mPanelView.getContext().getContentResolver().unregisterContentObserver(
                     mOneFingerQuickSettingsInterceptObserver);
             // Manual handling of fragment lifecycle is only required because this bridges
@@ -2278,6 +2291,29 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
                     mNotificationStackScrollLayoutController.setQsHeader(null);
                 }
                 mQs = null;
+            }
+        }
+
+        @Override
+        public void onTuningChanged(String key, String newValue) {
+            if (NOTIFICATION_ROW_TRANSPARENCY.equals(key)) {
+                onTransparencyUpdated();
+            }
+        }
+    }
+
+    private final void onTransparencyUpdated() {
+        NotificationStackScrollLayoutController controller = mNotificationStackScrollLayoutController;
+        if (controller == null || controller.getView() == null) {
+            return;
+        }
+        NotificationStackScrollLayout view = controller.getView();
+        int childCount = view.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            View child = view.getChildAt(i);
+            if (child instanceof ExpandableNotificationRow) {
+                final ExpandableNotificationRow row = (ExpandableNotificationRow) child;
+                child.post(row::updateIfNeeded);
             }
         }
     }
