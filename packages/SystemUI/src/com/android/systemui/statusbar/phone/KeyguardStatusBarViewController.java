@@ -774,7 +774,7 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
         }
     }
 
-    public boolean isKeyguardShowing() {
+    private boolean isKeyguardShowing() {
         return mStatusBarState == KEYGUARD;
     }
 
