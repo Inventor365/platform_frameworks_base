@@ -1130,7 +1130,9 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         // Update the light bar
         mLightBarController.setQsExpanded(mFullyExpanded);
 
-        onTransparencyUpdated(adjustedExpansionFraction);
+        if (adjustedExpansionFraction == 0.01f) {
+            onTransparencyUpdated();
+        }
 
         // Update full screen state
         setQsFullScreen(/* qsFullScreen = */ mFullyExpanded && !mSplitShadeEnabled);
@@ -2299,19 +2301,18 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         @Override
         public void onTuningChanged(String key, String newValue) {
             if (NOTIFICATION_ROW_TRANSPARENCY.equals(key)) {
-                onTransparencyUpdated(0f);
+                onTransparencyUpdated();
             }
         }
     }
 
-    private final void onTransparencyUpdated(float expansion) {
-        if (expansion != 0.01f) return;
+    private final void onTransparencyUpdated() {
         NotificationStackScrollLayoutController controller = mNotificationStackScrollLayoutController;
         if (controller == null || controller.getView() == null) {
             return;
         }
         NotificationStackScrollLayout view = controller.getView();
-        view.post(() -> view.updateBgColor(mBarState == KEYGUARD));
+        view.post(() -> view.updateBgColor());
     }
 
     private final class LockscreenShadeTransitionCallback
