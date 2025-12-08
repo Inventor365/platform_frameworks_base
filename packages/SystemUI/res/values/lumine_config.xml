@@ -29,4 +29,7 @@
 
     <!-- Notification counter -->
     <integer name="status_bar_notification_info_maxnum">999</integer>
+
+    <!-- Allow devices override audio panel location to the left side -->
+    <bool name="config_audioPanelOnLeftSide">false</bool>
 </resources>
