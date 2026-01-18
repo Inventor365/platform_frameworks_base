@@ -140,6 +140,10 @@ constructor(
             .flatMapLatest { it.imsStates }
             .stateIn(scope, SharingStarted.WhileSubscribed(), realImpl.imsStates.value)
 
+    override fun disableWifi() {
+        activeRepo.value.disableWifi()
+    }
+
     override fun enableWifi() {
         activeRepo.value.enableWifi()
     }
