@@ -7343,6 +7343,11 @@ public final class Settings {
         public static final String LOCKSCREEN_WEATHER_HUMIDITY_INFO = "lockscreen_weather_humidity_info";
 
         /**
+         * @hide
+         */
+        public static final String DISABLE_STACKED_MOBILE_ICONS = "disable_stacked_mobile_icons";
+
+        /**
          * Keys we no longer back up under the current schema, but want to continue to
          * process when restoring historical backup datasets.
          *
