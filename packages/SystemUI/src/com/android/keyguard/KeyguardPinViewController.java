@@ -101,9 +101,7 @@ public class KeyguardPinViewController
         mView.onDevicePostureChanged(mPostureController.getDevicePosture());
         mPostureController.addCallback(mPostureCallback);
         mPasswordEntry.setUsePinShapes(true);
-        if (isAutoPinConfirmEnabledInSettings()) {
-            updateAutoConfirmationState();
-        }
+        updateAutoConfirmationState();
         mView.updatePinScrambling(
                 Settings.System.getIntForUser(getContext().getContentResolver(),
                         Settings.System.LOCKSCREEN_PIN_SCRAMBLE_LAYOUT, 0,
@@ -146,9 +144,7 @@ public class KeyguardPinViewController
     @Override
     protected void handleAttemptLockout(long elapsedRealtimeDeadline) {
         super.handleAttemptLockout(elapsedRealtimeDeadline);
-        if (isAutoPinConfirmEnabledInSettings()) {
-            updateAutoConfirmationState();
-        }
+        updateAutoConfirmationState();
     }
 
     private void updateAutoConfirmationState() {
@@ -175,10 +171,12 @@ public class KeyguardPinViewController
      * Visibility changes are only for auto confirmation configuration.
      */
     private void updateBackSpaceVisibility() {
-        boolean hasPass = mPasswordEntry.getText().length() > 0;
-        mBackspaceKey.setTransparentMode(hasPass);
-        if (isAutoPinConfirmEnabledInSettings()) {
-            if (hasPass || mDisabledAutoConfirmation) {
+        boolean isAutoConfirmation = isAutoPinConfirmEnabledInSettings();
+        mBackspaceKey.setTransparentMode(/* isTransparentMode= */
+                isAutoConfirmation && !mDisabledAutoConfirmation);
+        if (isAutoConfirmation) {
+            if (mPasswordEntry.getText().length() > 0
+                    || mDisabledAutoConfirmation) {
                 mBackspaceKey.setVisibility(View.VISIBLE);
             } else {
                 mBackspaceKey.setVisibility(View.INVISIBLE);
