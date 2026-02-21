@@ -3238,8 +3238,7 @@ class ActivityStarter {
         TaskFragment newParent = task;
         if (mInTaskFragment != null) {
             int embeddingCheckResult = canEmbedActivity(mInTaskFragment, mStartActivity, task);
-            if (embeddingCheckResult == EMBEDDING_ALLOWED
-                || com.android.internal.util.luminedroid.PixelPropsUtils.isSystemLauncher(mCallingUid)) {
+            if (embeddingCheckResult == EMBEDDING_ALLOWED) {
                 newParent = mInTaskFragment;
                 mStartActivity.mRequestedLaunchingTaskFragmentToken =
                         mInTaskFragment.getFragmentToken();
