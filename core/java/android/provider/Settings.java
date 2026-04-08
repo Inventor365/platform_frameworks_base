@@ -14168,13 +14168,6 @@ public final class Settings {
         public static final String VBOOT_HASH = "vboot_hash";
 
         /**
-         * Whether to use PIF spoof for google apps
-         * @hide
-         */
-        @Readable
-        public static final String PI_ENABLE_SPOOF = "pi_enable_spoof";
-
-        /**
          * Whether to use PixelProps spoof for google apps
          * @hide
          */
