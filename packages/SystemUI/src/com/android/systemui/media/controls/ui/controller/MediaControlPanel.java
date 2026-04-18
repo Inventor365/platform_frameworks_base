@@ -982,6 +982,10 @@ public class MediaControlPanel {
                         appIconView.setImageResource(R.drawable.ic_music_note);
                     }
                 }
+                Drawable resolvedAppIcon = appIconView.getDrawable();
+                if (resolvedAppIcon != null) {
+                    MediaSessionManager.Companion.get().onAppIconChanged(resolvedAppIcon);
+                }
                 Trace.endAsyncSection(traceName, traceCookie);
             });
         });

@@ -19,21 +19,14 @@ package com.android.systemui.util
 import android.os.Handler
 import android.os.Looper
 import android.service.notification.StatusBarNotification
-import com.android.systemui.dagger.SysUISingleton
-import com.android.systemui.Dependency
-import com.android.systemui.dump.DumpManager
-import com.android.systemui.Dumpable
+import android.view.View
+import android.view.ViewTreeObserver
 import com.android.systemui.statusbar.StatusBarState.KEYGUARD
 import com.android.systemui.statusbar.StatusBarState.SHADE_LOCKED
-import javax.inject.Inject
-import java.io.FileDescriptor
-import java.io.PrintWriter
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.function.Consumer
 
 /* Scrim - aka testing utils */
-@SysUISingleton
-class ScrimUtils @Inject constructor(dumpManager: DumpManager) : Dumpable {
+class ScrimUtils private constructor() {
 
     interface ScrimEventListener {
         fun onKeyguardShowingChanged(showing: Boolean) {}
@@ -49,6 +42,9 @@ class ScrimUtils @Inject constructor(dumpManager: DumpManager) : Dumpable {
         fun onUserChanged() {}
         fun setPulsing(pulsing: Boolean) {}
         fun onNotificationPosted(sbn: StatusBarNotification) {}
+        fun onNotificationRemoved(sbn: StatusBarNotification) {}
+        fun onKeyguardLayoutChanged() {}
+        fun onKeyguardAlphaChanged(alpha: Float) {}
     }
 
     private val listeners = WeakListenerManager<ScrimEventListener>()
@@ -64,103 +60,102 @@ class ScrimUtils @Inject constructor(dumpManager: DumpManager) : Dumpable {
     @Volatile private var mBarState: Int? = null
     @Volatile private var mAwake: Boolean? = null
 
+    private val mStateIsKeyguard get() = mBarState == SHADE_LOCKED || mBarState == KEYGUARD
+
     private var keyguardRetryRunnable: Runnable? = null
 
     companion object {
+        private const val LAYOUT_STABLE_DELAY = 350L
+
         @Volatile private var instance: ScrimUtils? = null
 
         @JvmStatic
-        fun get(): ScrimUtils = Dependency.get(ScrimUtils::class.java)
-    }
-
-    init {
-        dumpManager.registerNormalDumpable("ScrimUtils", this)
+        fun get(): ScrimUtils =
+            instance ?: synchronized(this) {
+                instance ?: ScrimUtils().also { instance = it }
+            }
     }
 
     fun addListener(listener: ScrimEventListener) = listeners.addListener(listener)
     fun removeListener(listener: ScrimEventListener) = listeners.removeListener(listener)
 
-    private fun notifyListeners(callback: Consumer<ScrimEventListener>) {
-        listeners.notifyConsumer(callback)
-    }
-
     fun setKeyguardShowing(showing: Boolean) {
         if (mKeyguardShowing == null || mKeyguardShowing != showing) {
             mKeyguardShowing = showing
-            notifyListeners(Consumer { it.onKeyguardShowingChanged(showing) })
+            listeners.notifyOnMain { it.onKeyguardShowingChanged(showing) }
         }
     }
 
     fun onKeyguardFadingAwayChanged(fadingAway: Boolean) {
-        notifyListeners(Consumer { it.onKeyguardFadingAwayChanged(fadingAway) })
+        listeners.notifyOnMain { it.onKeyguardFadingAwayChanged(fadingAway) }
         postKeyguardRetry()
     }
 
     fun onKeyguardGoingAwayChanged(goingAway: Boolean) {
-        notifyListeners(Consumer { it.onKeyguardGoingAwayChanged(goingAway) })
+        listeners.notifyOnMain { it.onKeyguardGoingAwayChanged(goingAway) }
         postKeyguardRetry()
     }
 
     fun onPrimaryBouncerShowingChanged(showing: Boolean) {
-        notifyListeners(Consumer { it.onPrimaryBouncerShowingChanged(showing) })
+        listeners.notifyOnMain { it.onPrimaryBouncerShowingChanged(showing) }
         postKeyguardRetry()
     }
 
     private fun postKeyguardRetry() {
         keyguardRetryRunnable?.let { mainHandler.removeCallbacks(it) }
         keyguardRetryRunnable = Runnable {
-            notifyListeners(Consumer { it.onKeyguardShowingChanged(mKeyguardShowing == true) })
+            listeners.notifyOnMain { it.onKeyguardShowingChanged(mKeyguardShowing == true) }
         }
         mainHandler.postDelayed(keyguardRetryRunnable!!, mFadingAwayDuration)
     }
 
     fun setExpandedFraction(fraction: Float) {
-        if (mExpandedFraction == null || (fraction == 0.0f || fraction == 1.0f && mExpandedFraction != fraction)) {
+        if (mExpandedFraction == null ||
+            ((fraction == 0.0f || fraction == 1.0f) && mExpandedFraction != fraction)) {
             mExpandedFraction = fraction
-            notifyListeners(Consumer { it.onExpandedFractionChanged(fraction) })
+            listeners.notifyOnBackground { it.onExpandedFractionChanged(fraction) }
         }
     }
 
     fun onDozingChanged(dozing: Boolean) {
         if (mIsDozing == null || mIsDozing != dozing) {
             mIsDozing = dozing
-            listeners.notifyOnMain { it.onDozingChanged() }
+            listeners.notify { it.onDozingChanged() }
         }
     }
 
     fun setBarState(state: Int) {
-        val stateChanged = mBarState == null || mBarState != state
-        if (stateChanged) {
+        if (mBarState == null || mBarState != state) {
             mBarState = state
-            notifyListeners(Consumer { it.onBarStateChanged(state) })
+            listeners.notifyOnMain { it.onBarStateChanged(state) }
         }
-        // hack 4 bug: 
+        // hack 4 bug:
         // 1. user is on keyguard but is mBarState == SHADE
-        // 2. keyguard update monitor wrong state when dozing 
-        val shouldShowKeyguard = state == KEYGUARD || mIsDozing == true || mPulsing.get()
+        // 2. keyguard update monitor wrong state when dozing
+        val shouldShowKeyguard = mStateIsKeyguard || mIsDozing == true || mPulsing.get()
         setKeyguardShowing(shouldShowKeyguard)
     }
 
     fun setQsVisible(visible: Boolean) {
         if (mQsVisible.getAndSet(visible) != visible) {
-            notifyListeners(Consumer { it.onQsVisibilityChanged(visible) })
+            listeners.notifyOnMain { it.onQsVisibilityChanged(visible) }
         }
     }
 
     fun setPulsing(pulsing: Boolean) {
         if (mPulsing.getAndSet(pulsing) != pulsing) {
-            notifyListeners(Consumer { it.setPulsing(pulsing) })
+            listeners.notify { it.setPulsing(pulsing) }
         }
     }
 
     fun onStartedWakingUp() {
         mAwake = true
-        notifyListeners(Consumer { it.onStartedWakingUp() })
+        listeners.notify { it.onStartedWakingUp() }
     }
 
     fun onScreenTurnedOff() {
         mAwake = false
-        notifyListeners(Consumer { it.onScreenTurnedOff() })
+        listeners.notify { it.onScreenTurnedOff() }
     }
 
     fun onUserChanged() {
@@ -171,28 +166,69 @@ class ScrimUtils @Inject constructor(dumpManager: DumpManager) : Dumpable {
         listeners.notifyOnMain { it.onNotificationPosted(sbn) }
     }
 
+    fun onNotificationRemoved(sbn: StatusBarNotification) {
+        listeners.notifyOnMain { it.onNotificationRemoved(sbn) }
+    }
+
+    private var keyguardRootView: View? = null
+    private var layoutChangePending = false
+    private var layoutStableRunnable: Runnable? = null
+    private val preDrawActions = mutableListOf<Runnable>()
+
+    private val keyguardPreDrawListener = ViewTreeObserver.OnPreDrawListener {
+        val root = keyguardRootView ?: return@OnPreDrawListener true
+
+        for (action in preDrawActions) {
+            action.run()
+        }
+
+        if (mKeyguardShowing == true && root.isDirty) {
+            if (!layoutChangePending) {
+                layoutChangePending = true
+                listeners.notifyOnMain { it.onKeyguardLayoutChanged() }
+            }
+            layoutStableRunnable?.let { mainHandler.removeCallbacks(it) }
+            layoutStableRunnable = Runnable { layoutChangePending = false }
+            mainHandler.postDelayed(layoutStableRunnable!!, LAYOUT_STABLE_DELAY)
+        }
+        true
+    }
+
+    fun addKeyguardPreDrawAction(action: Runnable) {
+        if (!preDrawActions.contains(action)) preDrawActions.add(action)
+    }
+
+    fun removeKeyguardPreDrawAction(action: Runnable) {
+        preDrawActions.remove(action)
+    }
+
+    fun attachKeyguardView(view: View) {
+        detachKeyguardView()
+        keyguardRootView = view
+        view.viewTreeObserver.addOnPreDrawListener(keyguardPreDrawListener)
+    }
+
+    fun detachKeyguardView() {
+        keyguardRootView?.viewTreeObserver?.removeOnPreDrawListener(keyguardPreDrawListener)
+        keyguardRootView = null
+        layoutStableRunnable?.let { mainHandler.removeCallbacks(it) }
+        layoutStableRunnable = null
+        layoutChangePending = false
+    }
+
+    fun setKeyguardAlpha(alpha: Float) {
+        listeners.notifyOnMain { it.onKeyguardAlphaChanged(alpha) }
+    }
+
     fun isDozing(): Boolean = mIsDozing == true
     fun isAwake(): Boolean = mAwake == true
     fun isPulsing(): Boolean = mPulsing.get()
     fun isKeyguardShowing(): Boolean = mKeyguardShowing == true
 
     fun isPanelFullyCollapsed(): Boolean =
-        if (mBarState == SHADE_LOCKED || mBarState == KEYGUARD) {
+        if (mStateIsKeyguard) {
             !mQsVisible.get()
         } else {
             (mExpandedFraction ?: 0.0f) <= 0.0f
         }
-
-    // adb shell dumpsys activity service com.android.systemui | grep "ScrimUtils states:" -A10
-    override fun dump(pw: PrintWriter, args: Array<String>) {
-        pw.println("ScrimUtils states:")
-        pw.println("  mKeyguardShowing = $mKeyguardShowing")
-        pw.println("  mIsDozing = $mIsDozing")
-        pw.println("  mAwake = $mAwake")
-        pw.println("  mPulsing = ${mPulsing.get()}")
-        pw.println("  mQsVisible = ${mQsVisible.get()}")
-        pw.println("  mExpandedFraction = $mExpandedFraction")
-        pw.println("  mBarState = $mBarState")
-        pw.println("  isPanelFullyCollapsed() = ${isPanelFullyCollapsed()}")
-    }
 }
