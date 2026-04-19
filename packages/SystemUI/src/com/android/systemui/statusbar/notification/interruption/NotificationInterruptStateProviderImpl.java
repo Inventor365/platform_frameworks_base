@@ -45,7 +45,6 @@ import androidx.annotation.NonNull;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.logging.UiEvent;
 import com.android.internal.logging.UiEventLogger;
-import com.android.systemui.axdynamicbar.domain.AxDynamicBarSettings;
 import com.android.systemui.dagger.SysUISingleton;
 import com.android.systemui.dagger.qualifiers.Main;
 import com.android.systemui.plugins.statusbar.StatusBarStateController;
@@ -96,7 +95,6 @@ public class NotificationInterruptStateProviderImpl implements NotificationInter
     private final EventLog mEventLog;
     private final Optional<Bubbles> mBubbles;
     private final ContentResolver mContentResolver;
-    private final AxDynamicBarSettings mAxDynamicBarSettings;
 
     @VisibleForTesting
     protected boolean mUseHeadsUp = false;
@@ -153,9 +151,7 @@ public class NotificationInterruptStateProviderImpl implements NotificationInter
             SystemClock systemClock,
             GlobalSettings globalSettings,
             EventLog eventLog,
-            Optional<Bubbles> bubbles,
-            AxDynamicBarSettings axDynamicBarSettings) {
-        mAxDynamicBarSettings = axDynamicBarSettings;
+            Optional<Bubbles> bubbles,) {
         mContentResolver = contentResolver;
         mContext = context;
         mTm = (TelecomManager) context.getSystemService(Context.TELECOM_SERVICE);
@@ -463,11 +459,6 @@ public class NotificationInterruptStateProviderImpl implements NotificationInter
                     mLogger.logNoHeadsUpShouldSkipPackage(entry);
                     return false;
             }
-        }
-
-        if (mAxDynamicBarSettings.isNotificationEventsActive()) {
-            if (log) mLogger.logNoHeadsUpFeatureDisabled();
-            return false;
         }
 
         if (!canAlertCommon(entry, log)) {
