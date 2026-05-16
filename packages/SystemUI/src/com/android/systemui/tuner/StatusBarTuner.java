@@ -24,6 +24,8 @@ import androidx.annotation.Nullable;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceScreen;
 
+import org.luminedroid.utils.IconTinterUtils;
+
 import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.systemui.res.R;
@@ -47,6 +49,7 @@ public class StatusBarTuner extends SettingsBasePreferenceFragment {
                 getPreferenceScreen().removePreference(pref);
             }
         }
+        IconTinterUtils.tintIcons(getPreferenceScreen(), getContext());
     }
 
     private static boolean isVoiceCapable(Context context) {

@@ -47,7 +47,6 @@ public class StatusBarSwitch extends SwitchPreferenceCompat implements Tunable {
     public void onAttached() {
         super.onAttached();
         Dependency.get(TunerService.class).addTunable(this, StatusBarIconController.ICON_HIDE_LIST);
-        setupTheme();
     }
 
     @Override
@@ -84,18 +83,6 @@ public class StatusBarSwitch extends SwitchPreferenceCompat implements Tunable {
         return true;
     }
     
-    private void setupTheme() {
-        Drawable icon = getIcon();
-        if (icon != null) {
-            TypedArray a = getContext().obtainStyledAttributes(new int[]{android.R.attr.textColorPrimary});
-            int color = a.getColor(0, 0);
-            a.recycle();
-            Drawable wrappedIcon = DrawableCompat.wrap(icon);
-            DrawableCompat.setTint(wrappedIcon, color);
-            setIcon(wrappedIcon);
-        }
-    }
-
     private void setupTheme() {
         Drawable icon = getIcon();
         if (icon != null) {

@@ -596,6 +596,7 @@ android_library {
         "smartspace-proto-lite-java",
         "ax_compose",
         "axquicklook-client",
+        "commonutils",
     ],
     javacflags: [
         "-Aroom.schemaLocation=frameworks/base/packages/SystemUI/schemas",
