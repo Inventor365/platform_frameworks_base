@@ -25,7 +25,6 @@ import android.view.MotionEvent
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.plugins.FalsingManager
 import com.android.systemui.plugins.statusbar.StatusBarStateController
-import com.android.systemui.statusbar.StatusBarState
 import javax.inject.Inject
 
 @SysUISingleton
@@ -62,12 +61,11 @@ class QQSGestureListener @Inject constructor(
         if (e.actionMasked == MotionEvent.ACTION_UP &&
                 !statusBarStateController.isDozing &&
                 doubleTapToSleepEnabled &&
+                e.getY() < quickQsOffsetHeight &&
                 !falsingManager.isFalseDoubleTap
         ) {
-            if (e.y < quickQsOffsetHeight || statusBarStateController.state == StatusBarState.KEYGUARD) {
-                powerManager.goToSleep(e.eventTime)
-                return true
-            }
+            powerManager.goToSleep(e.getEventTime())
+            return true
         }
         return false
     }
