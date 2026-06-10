@@ -65,7 +65,6 @@ object WifiViewBinder {
         val activityContainerView = view.requireViewById<View>(R.id.inout_container)
         val airplaneSpacer = view.requireViewById<View>(R.id.wifi_airplane_spacer)
         val signalSpacer = view.requireViewById<View>(R.id.wifi_signal_spacer)
-        val wifiStandardView = view.requireViewById<ImageView>(R.id.wifi_standard)
         val voWifiView = view.requireViewById<ImageView>(R.id.vowifi)
 
         view.isVisible = true
@@ -116,7 +115,6 @@ object WifiViewBinder {
                         iconView.imageTintList = tintList
                         activityInView.imageTintList = tintList
                         activityOutView.imageTintList = tintList
-                        wifiStandardView.imageTintList = tintList
                         voWifiView.imageTintList = tintList
                         dotView.setDecorColor(tint)
                     }
