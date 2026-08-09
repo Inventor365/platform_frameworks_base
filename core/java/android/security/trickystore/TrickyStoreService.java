@@ -47,7 +47,9 @@ public class TrickyStoreService {
 
     private final Set<String> mHackPackages = ConcurrentHashMap.newKeySet();
     private final Set<String> mGeneratePackages = ConcurrentHashMap.newKeySet();
+    private final Set<String> mSkipPackages = ConcurrentHashMap.newKeySet();
     private final Map<String, Mode> mPackageModes = new ConcurrentHashMap<>();
+    private final Map<String, CustomPatchLevel> mPerPackagePatchLevels = new ConcurrentHashMap<>();
 
     private volatile Boolean mTeeBroken = null;
     private volatile long mLastRevocationCheckMs = 0L;
@@ -61,7 +63,7 @@ public class TrickyStoreService {
 
     /** @hide */
     public enum Mode {
-        AUTO, LEAF_HACK, GENERATE
+        AUTO, LEAF_HACK, GENERATE, SKIP
     }
 
     /** @hide */
@@ -129,6 +131,7 @@ public class TrickyStoreService {
         String content = fetchFromAms(am -> am.getSpoofTrickyStoreTarget());
         mHackPackages.clear();
         mGeneratePackages.clear();
+        mSkipPackages.clear();
         mPackageModes.clear();
 
         if (content == null || content.isEmpty()) {
@@ -164,6 +167,10 @@ public class TrickyStoreService {
                 String pkg = line.substring(0, line.length() - 1).trim();
                 mHackPackages.add(pkg);
                 mPackageModes.put(pkg, Mode.LEAF_HACK);
+            } else if (line.endsWith("-")) {
+                String pkg = line.substring(0, line.length() - 1).trim();
+                mSkipPackages.add(pkg);
+                mPackageModes.put(pkg, Mode.SKIP);
             } else {
                 mPackageModes.put(line, Mode.AUTO);
             }
@@ -198,6 +205,7 @@ public class TrickyStoreService {
                 mPackageModes.put(pkg, mode);
                 if (mode == Mode.LEAF_HACK) mHackPackages.add(pkg);
                 if (mode == Mode.GENERATE) mGeneratePackages.add(pkg);
+                if (mode == Mode.SKIP) mSkipPackages.add(pkg);
             }
             reader.endArray();
         }
@@ -257,9 +265,10 @@ public class TrickyStoreService {
     }
 
     public void refreshPatchLevel() {
+        mPerPackagePatchLevels.clear();
+        mCustomPatchLevel = null;
         String content = fetchFromAms(am -> am.getSpoofTrickyStorePatch());
         if (content == null || content.isEmpty()) {
-            mCustomPatchLevel = null;
             return;
         }
 
@@ -275,47 +284,69 @@ public class TrickyStoreService {
         }
     }
 
+    private static String resolvePatchTemplate(String value) {
+        if (value == null) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern
+            .compile("^YYYY-MM-(\\d{2})$").matcher(value.trim());
+        if (!m.matches()) return value;
+        String day = m.group(1);
+        java.util.Calendar cal = java.util.Calendar.getInstance(
+            java.util.TimeZone.getTimeZone("UTC"));
+        return String.format(java.util.Locale.US, "%04d-%02d-%s",
+            cal.get(java.util.Calendar.YEAR),
+            cal.get(java.util.Calendar.MONTH) + 1,
+            day);
+    }
+
+    private void flushPatchSection(String pkg, String system, String vendor, String boot, String all) {
+        if (system == null && vendor == null && boot == null && all == null) return;
+        String resolvedAll    = resolvePatchTemplate(all);
+        String resolvedSystem = resolvePatchTemplate(system);
+        String resolvedVendor = resolvePatchTemplate(vendor);
+        String resolvedBoot   = resolvePatchTemplate(boot);
+        CustomPatchLevel level = new CustomPatchLevel(
+            resolvedSystem != null ? resolvedSystem : resolvedAll,
+            resolvedVendor != null ? resolvedVendor : resolvedAll,
+            resolvedBoot   != null ? resolvedBoot   : resolvedAll,
+            resolvedAll
+        );
+        if (pkg == null) {
+            mCustomPatchLevel = level;
+        } else {
+            mPerPackagePatchLevels.put(pkg, level);
+        }
+    }
+
     private void parsePatchText(String content) {
-        StringBuilder filtered = new StringBuilder();
+        String currentPkg = null;
+        String system = null, vendor = null, boot = null, all = null;
+
         for (String raw : content.split("\n")) {
             String line = raw.trim();
-            if (!line.isEmpty() && !line.startsWith("#")) {
-                filtered.append(line).append("\n");
+            if (line.isEmpty() || line.startsWith("#")) continue;
+
+            if (line.startsWith("[") && line.endsWith("]")) {
+                flushPatchSection(currentPkg, system, vendor, boot, all);
+                currentPkg = line.substring(1, line.length() - 1).trim();
+                system = vendor = boot = all = null;
+                continue;
             }
-        }
 
-        String lines = filtered.toString().trim();
-        if (lines.isEmpty()) {
-            mCustomPatchLevel = null;
-            return;
-        }
-
-        String[] parts = lines.split("\n");
-        if (parts.length == 1 && !parts[0].contains("=")) {
-            mCustomPatchLevel = new CustomPatchLevel(parts[0], parts[0], parts[0], parts[0]);
-            return;
-        }
-
-        String system = null, vendor = null, boot = null, all = null;
-        for (String part : parts) {
-            int idx = part.indexOf('=');
+            int idx = line.indexOf('=');
             if (idx > 0) {
-                String key = part.substring(0, idx).trim().toLowerCase();
-                String value = part.substring(idx + 1).trim();
+                String key = line.substring(0, idx).trim().toLowerCase(java.util.Locale.US);
+                String value = line.substring(idx + 1).trim();
                 switch (key) {
                     case "system": system = value; break;
                     case "vendor": vendor = value; break;
                     case "boot": boot = value; break;
                     case "all": all = value; break;
                 }
+            } else if (currentPkg == null) {
+                system = vendor = boot = all = line;
             }
         }
-        mCustomPatchLevel = new CustomPatchLevel(
-            system != null ? system : all,
-            vendor != null ? vendor : all,
-            boot != null ? boot : all,
-            all
-        );
+        flushPatchSection(currentPkg, system, vendor, boot, all);
     }
 
     private void parsePatchJson(String content) throws IOException {
@@ -334,12 +365,18 @@ public class TrickyStoreService {
             }
             reader.endObject();
         }
-        mCustomPatchLevel = new CustomPatchLevel(
-            system != null ? system : all,
-            vendor != null ? vendor : all,
-            boot != null ? boot : all,
-            all
-        );
+        flushPatchSection(null, system, vendor, boot, all);
+    }
+
+    public CustomPatchLevel getCustomPatchLevelForPackage(String[] packages) {
+        refreshPatchLevel();
+        if (packages != null) {
+            for (String pkg : packages) {
+                CustomPatchLevel level = mPerPackagePatchLevels.get(pkg);
+                if (level != null) return level;
+            }
+        }
+        return mCustomPatchLevel;
     }
 
     private void ensureTeeStatus() {
@@ -384,7 +421,7 @@ public class TrickyStoreService {
                 List<String> serials = extractCertSerials(xml);
                 if (serials.isEmpty()) return;
                 java.net.URL url = new java.net.URL(
-                        "https://android.googleapis.com/attestation/status");
+                        "https://android.googleapis.com/attestation/status?encrypted=0");
                 java.net.HttpURLConnection conn =
                         (java.net.HttpURLConnection) url.openConnection();
                 conn.setConnectTimeout(10_000);
@@ -467,6 +504,7 @@ public class TrickyStoreService {
         ensureTeeStatus();
         for (String pkg : packages) {
             Mode mode = mPackageModes.get(pkg);
+            if (mode == Mode.SKIP) continue;
             if (mode == Mode.LEAF_HACK) return true;
             if (mode == Mode.AUTO && !mTeeBroken) return true;
         }
@@ -479,6 +517,7 @@ public class TrickyStoreService {
         ensureTeeStatus();
         for (String pkg : packages) {
             Mode mode = mPackageModes.get(pkg);
+            if (mode == Mode.SKIP) continue;
             if (mode == Mode.GENERATE) return true;
             if (mode == Mode.AUTO && mTeeBroken) return true;
         }

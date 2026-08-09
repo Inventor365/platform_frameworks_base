@@ -227,10 +227,18 @@ public final class CertificateGenerator {
             teeEnforced.add(new DERTaggedObject(true, 503, DERNull.INSTANCE));
             teeEnforced.add(new DERTaggedObject(true, 702, new ASN1Integer(0)));
             teeEnforced.add(new DERTaggedObject(true, 704, rootOfTrust));
+            String[] packages = null;
+            try {
+                Context context = ActivityThread.currentApplication();
+                if (context != null && context.getPackageManager() != null) {
+                    packages = context.getPackageManager().getPackagesForUid(uid);
+                }
+            } catch (Throwable ignored) {}
+
             teeEnforced.add(new DERTaggedObject(true, 705, new ASN1Integer(AttestationUtils.getOsVersion())));
-            teeEnforced.add(new DERTaggedObject(true, 706, new ASN1Integer(AttestationUtils.getPatchLevel(false))));
-            teeEnforced.add(new DERTaggedObject(true, 718, new ASN1Integer(AttestationUtils.getVendorPatchLevel(true))));
-            teeEnforced.add(new DERTaggedObject(true, 719, new ASN1Integer(AttestationUtils.getBootPatchLevel(true))));
+            teeEnforced.add(new DERTaggedObject(true, 706, new ASN1Integer(AttestationUtils.getPatchLevel(false, packages))));
+            teeEnforced.add(new DERTaggedObject(true, 718, new ASN1Integer(AttestationUtils.getVendorPatchLevel(true, packages))));
+            teeEnforced.add(new DERTaggedObject(true, 719, new ASN1Integer(AttestationUtils.getBootPatchLevel(true, packages))));
 
             if (params.brand != null) {
                 teeEnforced.add(new DERTaggedObject(true, 710, new DEROctetString(params.brand)));

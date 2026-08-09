@@ -67,7 +67,7 @@ public final class PlayIntegritySpoofService {
     private volatile boolean mSpoofProps = true;
     private volatile boolean mSpoofProvider = true;
     private volatile boolean mSpoofSignature = false;
-    private volatile boolean mSpoofVendingBuild = true;
+    private volatile String mSpoofVendingFinger = "0";
     private volatile boolean mSpoofVendingSdk = false;
     private volatile boolean mDebug = false;
 
@@ -210,8 +210,15 @@ public final class PlayIntegritySpoofService {
             case "spoofSignature":
                 mSpoofSignature = "1".equals(value) || "true".equalsIgnoreCase(value);
                 break;
+            case "spoofVendingFinger":
+                mSpoofVendingFinger = value;
+                break;
             case "spoofVendingBuild":
-                mSpoofVendingBuild = "1".equals(value) || "true".equalsIgnoreCase(value);
+                if ("0".equals(mSpoofVendingFinger)
+                        && ("1".equals(value) || "true".equalsIgnoreCase(value))) {
+                    Log.w(TAG, "spoofVendingBuild is deprecated, treating as spoofVendingFinger=1");
+                    mSpoofVendingFinger = "1";
+                }
                 break;
             case "spoofVendingSdk":
                 mSpoofVendingSdk = "1".equals(value) || "true".equalsIgnoreCase(value);
@@ -256,14 +263,12 @@ public final class PlayIntegritySpoofService {
         if (!isDroidGuard && !isVending) return;
 
         if (isVending) {
-            if (!mSpoofVendingBuild) {
-                if (mVerboseLogs > 0) Log.d(TAG, "Vending build spoofing disabled");
+            String vendingFingerprint = resolveVendingFingerprint();
+            if (vendingFingerprint == null) {
+                if (mVerboseLogs > 0) Log.d(TAG, "Vending FINGERPRINT spoofing disabled");
                 return;
             }
-            for (Map.Entry<String, String> entry : mBuildFields.entrySet()) {
-                if ("SDK_INT".equals(entry.getKey())) continue;
-                spoofField(entry.getKey(), entry.getValue(), "PS");
-            }
+            spoofField("FINGERPRINT", vendingFingerprint, "PS");
             return;
         }
 
@@ -284,7 +289,27 @@ public final class PlayIntegritySpoofService {
         }
     }
 
-    public void spoofSignature() {
+    private String resolveVendingFingerprint() {
+        String setting = mSpoofVendingFinger;
+        if (setting == null || setting.isEmpty()
+                || "0".equals(setting) || "false".equalsIgnoreCase(setting)) {
+            return null;
+        }
+        if ("1".equals(setting) || "true".equalsIgnoreCase(setting)) {
+            return mBuildFields.get("FINGERPRINT");
+        }
+        return setting;
+    }
+
+    public String getSpoofVendingFinger() {
+        return mSpoofVendingFinger;
+    }
+
+    public void spoofSignature(String processName) {
+        if (isVending(processName)) {
+            if (mVerboseLogs > 0) Log.d(TAG, "Signature spoofing skipped for Vending");
+            return;
+        }
         if (!mSpoofSignature || mSignatureSpoofed) return;
 
         Signature spoofedSignature = new Signature(Base64.decode(ROM_SIGNATURE_DATA, Base64.DEFAULT));

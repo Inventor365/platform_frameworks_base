@@ -9,6 +9,10 @@ import android.util.Log;
 import com.android.internal.org.bouncycastle.asn1.*;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.security.*;
 import java.security.cert.*;
 
@@ -17,6 +21,10 @@ import java.security.cert.*;
  */
 public final class AttestationUtils {
     private static final String TAG = "AttestationUtils";
+
+    private static final File CONFIG_DIR = new File("/data/adb/tricky_store");
+    private static final File BOOT_KEY_FILE = new File(CONFIG_DIR, "boot_key");
+    private static final File HBK_FILE = new File(CONFIG_DIR, "hbk");
 
     private static byte[] sBootKey;
     private static byte[] sBootHash;
@@ -34,7 +42,7 @@ public final class AttestationUtils {
 
     public static byte[] getBootKey() {
         if (sBootKey == null) {
-            sBootKey = generateRandomBytes(32);
+            sBootKey = loadOrCreatePersisted(BOOT_KEY_FILE);
         }
         return sBootKey;
     }
@@ -42,12 +50,17 @@ public final class AttestationUtils {
     public static byte[] getBootHash() {
         if (sBootHash == null) {
             sBootHash = getBootHashFromProp();
+            if (sBootHash == null) {
+                sBootHash = readPersisted(HBK_FILE);
+            }
             if (sBootHash == null && !sTeeBroken) {
                 sBootHash = extractBootHashFromTee();
+                if (sBootHash != null) writePersisted(HBK_FILE, sBootHash);
             }
             if (sBootHash == null) {
-                Log.w(TAG, "Failed to get boot hash from prop and TEE, using random bytes");
+                Log.w(TAG, "Failed to get boot hash, generating random");
                 sBootHash = generateRandomBytes(32);
+                writePersisted(HBK_FILE, sBootHash);
             }
         }
         return sBootHash;
@@ -196,8 +209,12 @@ public final class AttestationUtils {
     }
 
     public static int getPatchLevel(boolean isLong) {
-        TrickyStoreService.CustomPatchLevel customLevel = 
-            TrickyStoreService.getInstance().getCustomPatchLevel();
+        return getPatchLevel(isLong, null);
+    }
+
+    public static int getPatchLevel(boolean isLong, String[] packages) {
+        TrickyStoreService.CustomPatchLevel customLevel =
+            TrickyStoreService.getInstance().getCustomPatchLevelForPackage(packages);
         if (customLevel != null && customLevel.system != null) {
             Integer parsed = parsePatchLevel(customLevel.system, isLong);
             if (parsed != null) return parsed;
@@ -206,8 +223,12 @@ public final class AttestationUtils {
     }
 
     public static int getVendorPatchLevel(boolean isLong) {
-        TrickyStoreService.CustomPatchLevel customLevel = 
-            TrickyStoreService.getInstance().getCustomPatchLevel();
+        return getVendorPatchLevel(isLong, null);
+    }
+
+    public static int getVendorPatchLevel(boolean isLong, String[] packages) {
+        TrickyStoreService.CustomPatchLevel customLevel =
+            TrickyStoreService.getInstance().getCustomPatchLevelForPackage(packages);
         if (customLevel != null && customLevel.vendor != null) {
             Integer parsed = parsePatchLevel(customLevel.vendor, isLong);
             if (parsed != null) return parsed;
@@ -216,13 +237,48 @@ public final class AttestationUtils {
     }
 
     public static int getBootPatchLevel(boolean isLong) {
-        TrickyStoreService.CustomPatchLevel customLevel = 
-            TrickyStoreService.getInstance().getCustomPatchLevel();
+        return getBootPatchLevel(isLong, null);
+    }
+
+    public static int getBootPatchLevel(boolean isLong, String[] packages) {
+        TrickyStoreService.CustomPatchLevel customLevel =
+            TrickyStoreService.getInstance().getCustomPatchLevelForPackage(packages);
         if (customLevel != null && customLevel.boot != null) {
             Integer parsed = parsePatchLevel(customLevel.boot, isLong);
             if (parsed != null) return parsed;
         }
         return convertPatchLevel(Build.VERSION.SECURITY_PATCH, isLong);
+    }
+
+    private static byte[] loadOrCreatePersisted(File file) {
+        byte[] existing = readPersisted(file);
+        if (existing != null) return existing;
+        byte[] fresh = generateRandomBytes(32);
+        writePersisted(file, fresh);
+        return fresh;
+    }
+
+    private static byte[] readPersisted(File file) {
+        if (!file.isFile()) return null;
+        try {
+            byte[] data = Files.readAllBytes(file.toPath());
+            if (data.length == 32) return data;
+        } catch (IOException ignored) {}
+        return null;
+    }
+
+    private static void writePersisted(File file, byte[] data) {
+        try {
+            if (!CONFIG_DIR.isDirectory() && !CONFIG_DIR.mkdirs()) return;
+            File tmp = new File(CONFIG_DIR, file.getName() + ".tmp");
+            try (FileOutputStream fos = new FileOutputStream(tmp)) {
+                fos.write(data);
+            }
+            if (tmp.renameTo(file)) {
+                file.setReadable(true, true);
+                file.setWritable(true, true);
+            }
+        } catch (IOException ignored) {}
     }
 
     private static Integer parsePatchLevel(String value, boolean isLong) {
