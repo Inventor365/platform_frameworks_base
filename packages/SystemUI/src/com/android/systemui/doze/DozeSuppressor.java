@@ -126,6 +126,9 @@ public class DozeSuppressor implements DozeMachine.Part {
             } else if (mMachine.getState() == DozeMachine.State.DOZE
                     && mConfig.alwaysOnEnabled(mUserTracker.getUserId())) {
                 nextState = DozeMachine.State.DOZE_AOD;
+            } else if (mMachine.getState() == DozeMachine.State.DOZE_AOD
+                    && !mConfig.alwaysOnEnabled(mUserTracker.getUserId())) {
+                nextState = DozeMachine.State.DOZE;
             }
 
             if (nextState != null) {

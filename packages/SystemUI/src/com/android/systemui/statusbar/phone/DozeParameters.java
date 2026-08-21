@@ -184,6 +184,11 @@ public class DozeParameters implements
                 public void onPowerSaveChanged(boolean isPowerSave) {
                     dispatchAlwaysOnEvent();
                 }
+
+                @Override
+                public void onBatteryLevelChanged(int level, boolean pluggedIn, boolean charging) {
+                    dispatchAlwaysOnEvent();
+                }
             });
     }
 

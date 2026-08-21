@@ -3301,6 +3301,13 @@ public class CentralSurfacesImpl implements CoreStartable, CentralSurfaces,
                         mDozeServiceHost.firePowerSaveChanged(isPowerSave);
                     }
                 }
+
+                @Override
+                public void onBatteryLevelChanged(int level, boolean pluggedIn, boolean charging) {
+                    if (mDozeServiceHost != null) {
+                        mDozeServiceHost.firePowerSaveChanged(mBatteryController.isAodPowerSave());
+                    }
+                }
             };
 
     private final ActivityTransitionAnimator.Callback mActivityTransitionAnimatorCallback =
