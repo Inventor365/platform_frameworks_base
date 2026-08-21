@@ -17,9 +17,11 @@ package com.android.systemui.navigationbar.gestural
 
 import android.content.Context
 import android.content.res.Configuration
+import android.content.res.Resources
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Point
+import android.graphics.Rect
 import android.os.Handler
 import android.util.Log
 import android.util.MathUtils
@@ -27,16 +29,21 @@ import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.VelocityTracker
+import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
 import androidx.annotation.VisibleForTesting
 import androidx.core.os.postDelayed
 import androidx.core.view.isVisible
 import androidx.dynamicanimation.animation.DynamicAnimation
+import androidx.dynamicanimation.animation.FloatPropertyCompat
+import androidx.dynamicanimation.animation.SpringAnimation
+import androidx.dynamicanimation.animation.SpringForce
 import com.android.internal.jank.Cuj
 import com.android.internal.jank.InteractionJankMonitor
 import com.android.internal.util.LatencyTracker
 import com.android.systemui.plugins.NavigationEdgeBackPlugin
+import com.android.wm.shell.shared.handles.RegionSamplingHelper
 import com.android.systemui.statusbar.VibratorHelper
 import com.android.systemui.statusbar.policy.ConfigurationController
 import com.android.systemui.util.ViewController
@@ -45,6 +52,8 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import java.io.PrintWriter
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -83,7 +92,7 @@ private const val DEBUG = false
 class BackPanelController
 @AssistedInject
 constructor(
-    @Assisted context: Context,
+    @Assisted private val context: Context,
     @Assisted private val windowManager: WindowManager,
     private val viewConfiguration: ViewConfiguration,
     @Assisted private val mainHandler: Handler,
@@ -94,6 +103,19 @@ constructor(
     private val interactionJankMonitor: InteractionJankMonitor,
 ) : ViewController<BackPanel>(BackPanel(context, latencyTracker)), NavigationEdgeBackPlugin {
 
+    var isLeftPanel: Boolean
+        get() = mView.isLeftPanel
+        set(value) {
+            mView.isLeftPanel = value
+        }
+
+    /**
+     * Injectable factory for [BackPanelController].
+     *
+     * Allows for easily injecting the right [ConfigurationController] for a given [Context]
+     * (e.g.context for the current display) while letting dependencies for [BackPanelController] be
+     * resolved by Dagger.
+     */
     @AssistedFactory
     interface Factory {
         fun create(
@@ -103,9 +125,16 @@ constructor(
         ): BackPanelController
     }
 
-    @VisibleForTesting internal var params: EdgePanelParams = EdgePanelParams(resources)
+    @VisibleForTesting internal var params: EdgePanelParams = EdgePanelParams(resources, context)
     @VisibleForTesting internal var currentState: GestureState = GestureState.GONE
     private var previousState: GestureState = GestureState.GONE
+    
+    private var regionSamplingHelper: RegionSamplingHelper? = null
+    private val samplingRect = Rect()
+    private var leftInset = 0
+    private var rightInset = 0
+    
+    private val samplingExecutor = Executors.newSingleThreadExecutor()
 
     // Screen attributes
     private lateinit var layoutParams: WindowManager.LayoutParams
@@ -158,6 +187,14 @@ constructor(
     private var minFlingDistance = 0
 
     internal val failsafeRunnable = Runnable { onFailsafe() }
+
+    private var longSwipeThreshold = 0f
+    private var triggerLongSwipe = false
+    private var isLongSwipeEnabled = false
+
+    private var backArrowVisibility = true
+
+    private var edgeHapticEnabled = true
 
     internal enum class GestureState {
         /* Arrow is off the screen and invisible */
@@ -252,10 +289,27 @@ constructor(
 
     override fun onViewAttached() {
         updateConfiguration()
+        mView.edgePanelParams = params
         updateArrowDirection(configurationController.isLayoutRtl)
         updateArrowState(GestureState.GONE, force = true)
         updateRestingArrowDimens()
         configurationController.addCallback(configurationListener)
+        regionSamplingHelper = RegionSamplingHelper(
+            mView,
+            object : RegionSamplingHelper.SamplingCallback {
+                override fun onRegionDarknessChanged(isRegionDark: Boolean) {
+                    mView.setIsDark(!isRegionDark)
+                }
+                override fun getSampledRegion(sampledView: View): Rect {
+                    return samplingRect
+                }
+                override fun isSamplingEnabled(): Boolean {
+                    return context.displayId == 0
+                }
+            },
+            samplingExecutor
+        )
+        regionSamplingHelper?.setWindowVisible(true)
     }
 
     /** Update the arrow direction. The arrow should point the same way for both panels. */
@@ -282,13 +336,17 @@ constructor(
                 startIsLeft = mView.isLeftPanel
                 hasPassedDragSlop = false
                 mView.resetStretch()
+                regionSamplingStart()
+                mView.triggerLongSwipe = false
             }
             MotionEvent.ACTION_MOVE -> {
                 if (dragSlopExceeded(event.x, startX)) {
+                    mView.triggerLongSwipe = triggerLongSwipe
                     handleMoveEvent(event)
                 }
             }
             MotionEvent.ACTION_UP -> {
+                mView.triggerLongSwipe = triggerLongSwipe
                 when (currentState) {
                     GestureState.ENTRY -> {
                         if (
@@ -344,16 +402,49 @@ constructor(
                     }
                 }
                 velocityTracker = null
+                regionSamplingStop()
             }
             MotionEvent.ACTION_CANCEL -> {
+                mView.triggerLongSwipe = triggerLongSwipe
                 // Receiving a CANCEL implies that something else intercepted
                 // the gesture, i.e., the user did not cancel their gesture.
                 // Therefore, disappear immediately, with minimum fanfare.
                 interactionJankMonitor.cancel(Cuj.CUJ_BACK_PANEL_ARROW)
                 updateArrowState(GestureState.GONE)
                 velocityTracker = null
+                regionSamplingStop()
             }
         }
+    }
+    
+    fun regionSamplingStart() {
+        regionSamplingHelper?.start(samplingRect)
+    }
+
+    fun regionSamplingStop() {
+        regionSamplingHelper?.stop()
+    }
+
+    fun updateSamplingRect() {
+        val inset: Int = if (mView.getIsLeftPanel()) {
+            leftInset.toInt()
+        } else {
+            displaySize.x.toInt() - rightInset.toInt() - layoutParams.width.toInt()
+        }
+        updateSamplingRect(inset, layoutParams.y.toInt(), displaySize.x.toInt())
+    }
+
+    fun updateSamplingRect(left: Int, top: Int, width: Int) {
+        val rect = Rect()
+        mView.getArrowBoundingBox().round(rect)
+        samplingRect.set(rect)
+        samplingRect.offset(left, top)
+        if (samplingRect.right > width) {
+            samplingRect.offset(width - samplingRect.right, 0)
+        } else if (samplingRect.left < 0) {
+            samplingRect.offset(-samplingRect.left, 0)
+        }
+        regionSamplingHelper?.updateSamplingRect()
     }
 
     private fun cancelAllPendingAnimations() {
@@ -374,7 +465,7 @@ constructor(
     private fun dragSlopExceeded(curX: Float, startX: Float): Boolean {
         if (hasPassedDragSlop) return true
 
-        if (abs(curX - startX) > viewConfiguration.scaledEdgeSlop) {
+        if (kotlin.math.abs(curX - startX) > viewConfiguration.scaledEdgeSlop) {
             // Reset the arrow to the side
             updateArrowState(GestureState.ENTRY)
 
@@ -438,7 +529,7 @@ constructor(
         val yOffset = y - startY
 
         // How far in the y direction we are from the original touch
-        val yTranslation = abs(yOffset)
+        val yTranslation = kotlin.math.abs(yOffset)
 
         // How far in the x direction we are from the original touch ignoring motion that
         // occurs between the screen edge and the touch start.
@@ -449,7 +540,7 @@ constructor(
         val xDelta = xTranslation - previousXTranslation
         previousXTranslation = xTranslation
 
-        if (abs(xDelta) > 0) {
+        if (kotlin.math.abs(xDelta) > 0) {
             val isInSameDirection = sign(xDelta) == sign(totalTouchDeltaActive)
             val isInDynamicRange = totalTouchDeltaActive in params.dynamicTriggerThresholdRange
             val isTouchInContinuousDirection = isInSameDirection || isInDynamicRange
@@ -489,8 +580,13 @@ constructor(
             }
         }
 
+        if (isLongSwipeEnabled) {
+            setTriggerLongSwipe(kotlin.math.abs(xTranslation) > longSwipeThreshold)
+        }
+
         setArrowStrokeAlpha(gestureProgress)
         setVerticalTranslation(yOffset)
+        updateSamplingRect()
     }
 
     private fun setArrowStrokeAlpha(gestureProgress: Float?) {
@@ -522,7 +618,7 @@ constructor(
     }
 
     private fun setVerticalTranslation(yOffset: Float) {
-        val yTranslation = abs(yOffset)
+        val yTranslation = kotlin.math.abs(yOffset)
         val maxYOffset = (mView.height - params.entryIndicator.backgroundDimens.height) / 2f
         val rubberbandAmount = 15f
         val yProgress = MathUtils.saturate(yTranslation / (maxYOffset * rubberbandAmount))
@@ -623,6 +719,8 @@ constructor(
     override fun onDestroy() {
         cancelFailsafe()
         windowManager.removeView(mView)
+        regionSamplingHelper?.stop()
+        regionSamplingHelper = null
     }
 
     override fun setIsLeftPanel(isLeftPanel: Boolean) {
@@ -635,6 +733,11 @@ constructor(
             }
     }
 
+    override fun setInsets(insetLeft: Int, insetRight: Int) {
+        leftInset = insetLeft
+        rightInset = insetRight
+    }
+
     override fun setBackCallback(callback: NavigationEdgeBackPlugin.BackCallback) {
         backCallback = callback
     }
@@ -642,6 +745,39 @@ constructor(
     override fun setLayoutParams(layoutParams: WindowManager.LayoutParams) {
         this.layoutParams = layoutParams
         windowManager.addView(mView, layoutParams)
+    }
+
+    override fun setLongSwipeEnabled(enabled: Boolean) {
+        longSwipeThreshold = if (enabled) MathUtils.min(
+            displaySize.x * 0.5f, layoutParams.width * 2.5f) else 0.0f
+        isLongSwipeEnabled = longSwipeThreshold > 0
+        setTriggerLongSwipe(isLongSwipeEnabled && triggerLongSwipe)
+    }
+
+    override fun setBackArrowVisibility(enabled: Boolean) {
+        backArrowVisibility = enabled
+    }
+
+    override fun setEdgeHapticEnabled(enabled: Boolean) {
+        edgeHapticEnabled = enabled
+    }
+
+    private fun setTriggerLongSwipe(enabled: Boolean) {
+        if (triggerLongSwipe != enabled) {
+            triggerLongSwipe = enabled
+            if (edgeHapticEnabled) vibratorHelper.performHapticFeedback(
+                    mView,
+                    HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE
+            )
+            updateRestingArrowDimens()
+            // Whenever the trigger back state changes
+            // the existing translation animation should be cancelled
+            cancelFailsafe()
+            mView.cancelAnimations()
+            mView.triggerLongSwipe = triggerLongSwipe
+            updateConfiguration()
+            backCallback.setTriggerLongSwipe(triggerLongSwipe)
+        }
     }
 
     private fun isFlungAwayFromEdge(endX: Float, startX: Float = touchDeltaStartX): Boolean {
@@ -697,11 +833,13 @@ constructor(
         yPosition = max(yPosition, params.minArrowYPosition.toFloat())
         yPosition -= layoutParams.height / 2.0f
         layoutParams.y = MathUtils.constrain(yPosition.toInt(), 0, displaySize.y)
+        updateSamplingRect()
     }
 
     override fun setDisplaySize(displaySize: Point) {
         this.displaySize.set(displaySize.x, displaySize.y)
         fullyStretchedThreshold = min(displaySize.x.toFloat(), params.swipeProgressThreshold)
+        minFlingDistance = (MIN_FLING_SCALE * displaySize.x).toInt()
     }
 
     /** Updates resting arrow and background size not accounting for stretch */
@@ -877,13 +1015,17 @@ constructor(
             GestureState.COMMITTED -> {
                 // When flung, trigger back immediately but don't fire again
                 // once state resolves to committed.
-                if (previousState != GestureState.FLUNG) backCallback.triggerBack()
+                if (previousState != GestureState.FLUNG) backCallback.triggerBack(false)
             }
             GestureState.ENTRY,
             GestureState.INACTIVE -> {
+                setTriggerLongSwipe(false)
                 backCallback.setTriggerBack(false)
             }
             GestureState.ACTIVE -> {
+                if (triggerLongSwipe) {
+                    backCallback.triggerBack(false)
+                }
                 backCallback.setTriggerBack(true)
             }
             GestureState.GONE -> {}
@@ -897,7 +1039,7 @@ constructor(
                 mView.isVisible = false
             }
             GestureState.ENTRY -> {
-                mView.isVisible = true
+                mView.isVisible = backArrowVisibility
 
                 updateRestingArrowDimens()
                 gestureEntryTime = systemClock.uptimeMillis()
@@ -905,7 +1047,7 @@ constructor(
             GestureState.ACTIVE -> {
                 previousXTranslationOnActiveOffset = previousXTranslation
                 updateRestingArrowDimens()
-                performActivatedHapticFeedback()
+                if (edgeHapticEnabled) performActivatedHapticFeedback()
                 val popVelocity =
                     if (previousState == GestureState.INACTIVE) {
                         POP_ON_INACTIVE_TO_ACTIVE_VELOCITY
@@ -926,14 +1068,14 @@ constructor(
 
                 mView.popOffEdge(POP_ON_INACTIVE_VELOCITY)
 
-                performDeactivatedHapticFeedback()
+                if (edgeHapticEnabled) performDeactivatedHapticFeedback()
                 updateRestingArrowDimens()
             }
             GestureState.FLUNG -> {
                 // Typically a vibration is only played while transitioning to ACTIVE. However there
                 // are instances where a fling to trigger back occurs while not in that state.
                 // (e.g. A fling is detected before crossing the trigger threshold.)
-                if (previousState != GestureState.ACTIVE) {
+                if (edgeHapticEnabled && (previousState != GestureState.ACTIVE)) {
                     performActivatedHapticFeedback()
                 }
                 mainHandler.postDelayed(POP_ON_FLING_DELAY) {
@@ -999,7 +1141,7 @@ constructor(
         val factor =
             velocityTracker?.run {
                 computeCurrentVelocity(PX_PER_MS)
-                MathUtils.smoothStep(slowVelocityBound, fastVelocityBound, abs(xVelocity))
+                MathUtils.smoothStep(slowVelocityBound, fastVelocityBound, kotlin.math.abs(xVelocity))
             } ?: valueOnFastVelocity
 
         return MathUtils.lerp(valueOnFastVelocity, valueOnSlowVelocity, 1 - factor)
@@ -1033,59 +1175,8 @@ constructor(
         return mView
     }
 
-    init {
-        if (DEBUG)
-            mView.drawDebugInfo = { canvas ->
-                val preProgress = staticThresholdProgress(previousXTranslation) * 100
-                val postProgress = fullScreenProgress(previousXTranslation) * 100
-                val debugStrings =
-                    listOf(
-                        "$currentState",
-                        "startX=$startX",
-                        "startY=$startY",
-                        "xDelta=${"%.1f".format(totalTouchDeltaActive)}",
-                        "xTranslation=${"%.1f".format(previousXTranslation)}",
-                        "pre=${"%.0f".format(preProgress)}%",
-                        "post=${"%.0f".format(postProgress)}%",
-                    )
-                val debugPaint = Paint().apply { color = Color.WHITE }
-                val debugInfoBottom = debugStrings.size * 32f + 4f
-                canvas.drawRect(
-                    4f,
-                    4f,
-                    canvas.width.toFloat(),
-                    debugStrings.size * 32f + 4f,
-                    debugPaint,
-                )
-                debugPaint.apply {
-                    color = Color.BLACK
-                    textSize = 32f
-                }
-                var offset = 32f
-                for (debugText in debugStrings) {
-                    canvas.drawText(debugText, 10f, offset, debugPaint)
-                    offset += 32f
-                }
-                debugPaint.apply {
-                    color = Color.RED
-                    style = Paint.Style.STROKE
-                    strokeWidth = 4f
-                }
-                val canvasWidth = canvas.width.toFloat()
-                val canvasHeight = canvas.height.toFloat()
-                canvas.drawRect(0f, 0f, canvasWidth, canvasHeight, debugPaint)
-
-                fun drawVerticalLine(x: Float, color: Int) {
-                    debugPaint.color = color
-                    val x = if (mView.isLeftPanel) x else canvasWidth - x
-                    canvas.drawLine(x, debugInfoBottom, x, canvas.height.toFloat(), debugPaint)
-                }
-
-                drawVerticalLine(x = params.staticTriggerThreshold, color = Color.BLUE)
-                drawVerticalLine(x = params.deactivationTriggerThreshold, color = Color.BLUE)
-                drawVerticalLine(x = startX, color = Color.GREEN)
-                drawVerticalLine(x = previousXTranslation, color = Color.DKGRAY)
-            }
+    companion object {
+        private const val MIN_FLING_SCALE = 0.05f
     }
 }
 
@@ -1100,10 +1191,10 @@ constructor(
  * it cannot be easily crossed again with small changes in touch events.
  */
 class Step<T>(
-    private val threshold: Float,
-    private val factor: Float = 1.1f,
-    private val postThreshold: T,
-    private val preThreshold: T,
+    val threshold: Float,
+    val factor: Float = 1.1f,
+    val postThreshold: T,
+    val preThreshold: T,
 ) {
 
     data class Value<T>(val value: T, val isNewState: Boolean)

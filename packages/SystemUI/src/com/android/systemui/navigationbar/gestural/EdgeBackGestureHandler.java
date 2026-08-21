@@ -30,6 +30,8 @@ import static com.android.systemui.navigationbar.gestural.Utilities.isTrackpadTh
 import static com.android.systemui.shared.system.QuickStepContract.SYSUI_STATE_TOUCHPAD_GESTURES_DISABLED;
 import static com.android.wm.shell.windowdecor.DragResizeWindowGeometry.isEdgeResizePermitted;
 
+import static com.android.internal.util.luminedroid.DeviceKeysConstants.Action;
+
 import static java.util.stream.Collectors.joining;
 
 import android.annotation.NonNull;
@@ -57,7 +59,9 @@ import android.os.RemoteException;
 import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.os.Trace;
+import android.os.UserHandle;
 import android.provider.DeviceConfig;
+import android.provider.Settings;
 import android.util.ArraySet;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -103,6 +107,7 @@ import com.android.systemui.shared.system.TaskStackChangeListener;
 import com.android.systemui.shared.system.TaskStackChangeListeners;
 import com.android.systemui.statusbar.phone.LightBarController;
 import com.android.systemui.topui.TopUiController;
+import com.android.systemui.tuner.TunerService;
 import com.android.systemui.util.concurrency.BackPanelUiThread;
 import com.android.systemui.util.concurrency.UiThreadContext;
 import com.android.systemui.util.kotlin.JavaAdapter;
@@ -137,11 +142,22 @@ import javax.inject.Provider;
 /**
  * Utility class to handle edge swipes for back gesture
  */
-public class EdgeBackGestureHandler {
+public class EdgeBackGestureHandler implements TunerService.Tunable {
 
     private static final String TAG = "EdgeBackGestureHandler";
     private static final int MAX_LONG_PRESS_TIMEOUT = SystemProperties.getInt(
             "gestures.back_timeout", 250);
+
+    private static final String KEY_EDGE_LONG_SWIPE_ACTION =
+            "system:" + Settings.System.KEY_EDGE_LONG_SWIPE_ACTION;
+    private static final String BACK_GESTURE_HEIGHT =
+            "system:" + Settings.System.BACK_GESTURE_HEIGHT;
+    private static final String FORCE_SHOW_NAVBAR =
+            "system:" + Settings.System.FORCE_SHOW_NAVBAR;
+    private static final String BACK_GESTURE_ARROW =
+            Settings.Secure.BACK_GESTURE_ARROW;
+    private static final String BACK_GESTURE_HAPTIC =
+            Settings.Secure.BACK_GESTURE_HAPTIC;
 
     private static final int MAX_NUM_LOGGED_PREDICTIONS = 10;
     private static final int MAX_NUM_LOGGED_GESTURES = 10;
@@ -282,6 +298,7 @@ public class EdgeBackGestureHandler {
     private boolean mIsEnabled;
     private boolean mIsNavBarShownTransiently;
     private boolean mIsBackGestureAllowed;
+    private boolean mIsLongSwipeEnabled;
     private boolean mIsTrackpadThreeFingerSwipe;
     private boolean mIsButtonForcedVisible;
 
@@ -296,6 +313,10 @@ public class EdgeBackGestureHandler {
     private int mRightInset;
     @SystemUiStateFlags
     private long mSysUiFlags;
+    private float mLongSwipeWidth;
+
+    private int mEdgeHeight;
+    private int mEdgeHeightSetting = 0;
 
     // For Tf-Lite model.
     private BackGestureTfClassifierProvider mBackGestureTfClassifierProvider;
@@ -320,20 +341,27 @@ public class EdgeBackGestureHandler {
     private final DisplayManager mDisplayManager;
     private final DisplayBackGestureHandlerImpl.Factory mDisplayBackGestureHandlerFactory;
     private final DesktopState mDesktopState;
+    private final TunerService mTunerService;
 
     private final GestureNavigationSettingsObserver mGestureNavigationSettingsObserver;
     private final TopUiController mTopUiController;
 
+    private boolean mNavbarVisible;
+    private boolean mIsBackGestureArrowEnabled;
+    private boolean mIsEdgeHapticEnabled;
+
     private final NavigationEdgeBackPlugin.BackCallback mBackCallback =
             new NavigationEdgeBackPlugin.BackCallback() {
                 @Override
-                public void triggerBack() {
+                public void triggerBack(boolean isLongPress) {
                     // Notify FalsingManager that an intentional gesture has occurred.
                     mFalsingManager.isFalseTouch(BACK_GESTURE);
                     // Only inject back keycodes when ahead-of-time back dispatching is disabled.
                     if (mBackAnimation == null) {
-                        boolean sendDown = sendEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK);
-                        boolean sendUp = sendEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK);
+                        boolean sendDown = sendEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK,
+                                isLongPress ? KeyEvent.FLAG_LONG_SWIPE : 0);
+                        boolean sendUp = sendEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK,
+                                isLongPress ? KeyEvent.FLAG_LONG_SWIPE : 0);
                         if (DEBUG_MISSING_GESTURE) {
                             Log.d(DEBUG_MISSING_GESTURE_TAG, "Triggered back: down="
                                     + sendDown + ", up=" + sendUp);
@@ -356,6 +384,7 @@ public class EdgeBackGestureHandler {
                 public void cancelBack() {
                     if (mBackAnimation != null) {
                         mBackAnimation.setTriggerBack(false);
+                        mBackAnimation.setTriggerLongSwipe(false);
                     }
                     logGesture(SysUiStatsLog.BACK_GESTURE__TYPE__INCOMPLETE);
                 }
@@ -364,6 +393,13 @@ public class EdgeBackGestureHandler {
                 public void setTriggerBack(boolean triggerBack) {
                     if (mBackAnimation != null) {
                         mBackAnimation.setTriggerBack(triggerBack);
+                    }
+                }
+
+                @Override
+                public void setTriggerLongSwipe(boolean triggerLongSwipe) {
+                    if (mBackAnimation != null) {
+                        mBackAnimation.setTriggerLongSwipe(triggerLongSwipe);
                     }
                 }
             };
@@ -479,7 +515,8 @@ public class EdgeBackGestureHandler {
             JavaAdapter javaAdapter,
             DisplayManager displayManager,
             DisplayBackGestureHandlerImpl.Factory displayBackGestureHandlerFactory,
-            DesktopState desktopState) {
+            DesktopState desktopState,
+            TunerService tunerService) {
         mContext = context;
         mMainDisplayId = context.getDisplayId();
         mUiThreadContext = uiThreadContext;
@@ -505,6 +542,7 @@ public class EdgeBackGestureHandler {
         mDisplayManager = displayManager;
         mDisplayBackGestureHandlerFactory = displayBackGestureHandlerFactory;
         mDesktopState = desktopState;
+        mTunerService = tunerService;
 
         ComponentName recentsComponentName = ComponentName.unflattenFromString(
                 context.getString(com.android.internal.R.string.config_recentsComponentName));
@@ -582,6 +620,10 @@ public class EdgeBackGestureHandler {
                 && mButtonForcedVisibleCallback != null) {
             mButtonForcedVisibleCallback.accept(mIsButtonForcedVisible);
         }
+        mNavbarVisible = Settings.System.getIntForUser(mContext.getContentResolver(),
+                Settings.System.FORCE_SHOW_NAVBAR,
+                mContext.getResources().getBoolean(com.android.internal.R.bool.config_showNavigationBar) ? 1 : 0,
+                UserHandle.USER_CURRENT) != 0;
 
         final DisplayMetrics dm = res.getDisplayMetrics();
         final float defaultGestureHeight = res.getDimension(
@@ -596,6 +638,24 @@ public class EdgeBackGestureHandler {
         mMLEnableWidth = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12.0f, dm);
         if (mMLEnableWidth > mEdgeWidthRight) mMLEnableWidth = mEdgeWidthRight;
         if (mMLEnableWidth > mEdgeWidthLeft) mMLEnableWidth = mEdgeWidthLeft;
+
+        mIsLongSwipeEnabled = Action.fromIntSafe(
+                Settings.System.getIntForUser(mContext.getContentResolver(),
+                        Settings.System.KEY_EDGE_LONG_SWIPE_ACTION,
+                        Action.NOTHING.ordinal(), UserHandle.USER_CURRENT)) != Action.NOTHING;
+        updateLongSwipeWidth();
+
+        mEdgeHeightSetting = Settings.System.getIntForUser(mContext.getContentResolver(),
+                        Settings.System.BACK_GESTURE_HEIGHT, 0, UserHandle.USER_CURRENT);
+        updateEdgeHeightValue();
+
+        mIsBackGestureArrowEnabled = Settings.Secure.getIntForUser(mContext.getContentResolver(),
+                        Settings.Secure.BACK_GESTURE_ARROW, 1, UserHandle.USER_CURRENT) != 0;
+        updateBackArrowVisibility();
+
+        mIsEdgeHapticEnabled = Settings.Secure.getIntForUser(mContext.getContentResolver(),
+                        Settings.Secure.BACK_GESTURE_HAPTIC, 1, UserHandle.USER_CURRENT) != 0;
+        updateEdgeHaptic();
 
         // Reduce the default touch slop to ensure that we can intercept the gesture
         // before the app starts to react to it.
@@ -647,6 +707,11 @@ public class EdgeBackGestureHandler {
         }
         updateIsEnabled();
         mUserTracker.addCallback(mUserChangedCallback, mUiThreadContext.getExecutor());
+        mTunerService.addTunable(this, KEY_EDGE_LONG_SWIPE_ACTION);
+        mTunerService.addTunable(this, BACK_GESTURE_HEIGHT);
+        mTunerService.addTunable(this, FORCE_SHOW_NAVBAR);
+        mTunerService.addTunable(this, BACK_GESTURE_ARROW);
+        mTunerService.addTunable(this, BACK_GESTURE_HAPTIC);
     }
 
     /**
@@ -660,6 +725,7 @@ public class EdgeBackGestureHandler {
         mTrackpadsConnected.clear();
         updateIsEnabled();
         mUserTracker.removeCallback(mUserChangedCallback);
+        mTunerService.removeTunable(this);
     }
 
     /**
@@ -771,7 +837,7 @@ public class EdgeBackGestureHandler {
 
             mIsGestureHandlingEnabled = mInGestureNavMode || (mUsingThreeButtonNav
                     && !mTrackpadsConnected.isEmpty());
-            boolean isEnabled = mIsAttached && mIsGestureHandlingEnabled;
+            boolean isEnabled = mIsAttached && mIsGestureHandlingEnabled && mNavbarVisible;
             if (isEnabled == mIsEnabled) {
                 return;
             }
@@ -853,6 +919,9 @@ public class EdgeBackGestureHandler {
 
                     // Add a nav bar panel window
                     resetEdgeBackPlugin();
+                    updateLongSwipeWidth();
+                    updateEdgeHeightValue();
+                    updateBackArrowVisibility();
                 }
 
                 // Begin listening to changes in blocked activities list
@@ -894,6 +963,87 @@ public class EdgeBackGestureHandler {
 
     public boolean isButtonForcedVisible() {
         return mIsButtonForcedVisible;
+    }
+
+    @Override
+    public void onTuningChanged(String key, String newValue) {
+        if (KEY_EDGE_LONG_SWIPE_ACTION.equals(key)) {
+            mIsLongSwipeEnabled = Action.fromIntSafe(TunerService.parseInteger(
+                    newValue, 0)) != Action.NOTHING;
+            updateLongSwipeWidth();
+        } else if (BACK_GESTURE_HEIGHT.equals(key)) {
+            mEdgeHeightSetting = TunerService.parseInteger(newValue, 0);
+            updateEdgeHeightValue();
+        } else if (FORCE_SHOW_NAVBAR.equals(key)) {
+            mNavbarVisible =
+                TunerService.parseIntegerSwitch(newValue,
+                    mContext.getResources().getBoolean(com.android.internal.R.bool.config_showNavigationBar));
+            updateIsEnabled();
+        } else if (BACK_GESTURE_ARROW.equals(key)) {
+            mIsBackGestureArrowEnabled =
+                TunerService.parseIntegerSwitch(newValue, true);
+            updateBackArrowVisibility();
+        } else if (BACK_GESTURE_HAPTIC.equals(key)) {
+            mIsEdgeHapticEnabled =
+                TunerService.parseIntegerSwitch(newValue, true);
+            updateEdgeHaptic();
+        }
+    }
+
+    private void updateLongSwipeWidth() {
+        if (!mIsEnabled) return;
+        if (DesktopExperienceFlags.ENABLE_MULTIDISPLAY_TRACKPAD_BACK_GESTURE.isTrue()) {
+            for (DisplayBackGestureHandler displayBackGestureHandler :
+                    mDisplayBackGestureHandlers.values()) {
+                displayBackGestureHandler.setLongSwipeEnabled(mIsLongSwipeEnabled);
+            }
+        } else if (mEdgeBackPlugin != null) {
+            mEdgeBackPlugin.setLongSwipeEnabled(mIsLongSwipeEnabled);
+        }
+    }
+
+    private void updateEdgeHeightValue() {
+        if (mDisplaySize == null) {
+            return;
+        }
+        // mEdgeHeightSetting range 0 - 3
+        // 0 means full height
+        // 1 means 3/4 of the screen
+        // 2 means 1/2 of the screen
+        // 3 means 1/4 of the screen
+        if (mEdgeHeightSetting == 0) {
+            mEdgeHeight = mDisplaySize.y;
+        } else if (mEdgeHeightSetting == 1) {
+            mEdgeHeight = (mDisplaySize.y * 3) / 4;
+        } else if (mEdgeHeightSetting == 2) {
+            mEdgeHeight = mDisplaySize.y / 2;
+        } else {
+            mEdgeHeight = mDisplaySize.y / 4;
+        }
+    }
+
+    private void updateBackArrowVisibility() {
+        if (!mIsEnabled) return;
+        if (DesktopExperienceFlags.ENABLE_MULTIDISPLAY_TRACKPAD_BACK_GESTURE.isTrue()) {
+            for (DisplayBackGestureHandler displayBackGestureHandler :
+                    mDisplayBackGestureHandlers.values()) {
+                displayBackGestureHandler.setBackArrowVisibility(mIsBackGestureArrowEnabled);
+            }
+        } else if (mEdgeBackPlugin != null) {
+            mEdgeBackPlugin.setBackArrowVisibility(mIsBackGestureArrowEnabled);
+        }
+    }
+
+    private void updateEdgeHaptic() {
+        if (!mIsEnabled) return;
+        if (DesktopExperienceFlags.ENABLE_MULTIDISPLAY_TRACKPAD_BACK_GESTURE.isTrue()) {
+            for (DisplayBackGestureHandler displayBackGestureHandler :
+                    mDisplayBackGestureHandlers.values()) {
+                displayBackGestureHandler.setEdgeHapticEnabled(mIsEdgeHapticEnabled);
+            }
+        } else if (mEdgeBackPlugin != null) {
+            mEdgeBackPlugin.setEdgeHapticEnabled(mIsEdgeHapticEnabled);
+        }
     }
 
     /**
@@ -1029,6 +1179,11 @@ public class EdgeBackGestureHandler {
         // Disallow if we are in the bottom gesture area
         if (y >= (mDisplaySize.y - mBottomGestureHeight)) {
             return false;
+        }
+        if (mEdgeHeight != 0) {
+            if (y < (mDisplaySize.y - mBottomGestureHeight - mEdgeHeight)) {
+                return false;
+            }
         }
         // If the point is way too far (twice the margin), it is
         // not interesting to us for logging purposes, nor we
@@ -1420,6 +1575,9 @@ public class EdgeBackGestureHandler {
             mEdgeBackPlugin.setDisplaySize(mDisplaySize);
         }
         updateBackAnimationThresholds();
+        updateLongSwipeWidth();
+        updateEdgeHeightValue();
+        updateBackArrowVisibility();
     }
 
     private void updateBackAnimationThresholds() {
@@ -1433,11 +1591,11 @@ public class EdgeBackGestureHandler {
         mBackAnimation.setSwipeThresholds(linearDistance, maxDistance, mNonLinearFactor);
     }
 
-    private boolean sendEvent(int action, int code) {
+    private boolean sendEvent(int action, int code, int flags) {
         long when = SystemClock.uptimeMillis();
         final KeyEvent ev = new KeyEvent(when, when, action, code, 0 /* repeat */,
                 0 /* metaState */, KeyCharacterMap.VIRTUAL_KEYBOARD, 0 /* scancode */,
-                KeyEvent.FLAG_FROM_SYSTEM | KeyEvent.FLAG_VIRTUAL_HARD_KEY,
+                flags | KeyEvent.FLAG_FROM_SYSTEM | KeyEvent.FLAG_VIRTUAL_HARD_KEY,
                 InputDevice.SOURCE_KEYBOARD);
 
         ev.setDisplayId(mContext.getDisplay().getDisplayId());
@@ -1448,6 +1606,9 @@ public class EdgeBackGestureHandler {
     public void setInsets(int leftInset, int rightInset) {
         mLeftInset = leftInset;
         mRightInset = rightInset;
+        if (mEdgeBackPlugin != null) {
+            mEdgeBackPlugin.setInsets(leftInset, rightInset);
+        }
     }
 
     private void disableNavBarVirtualKeyHapticFeedback() {

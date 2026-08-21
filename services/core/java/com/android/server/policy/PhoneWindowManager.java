@@ -88,6 +88,8 @@ import static android.view.WindowManager.LayoutParams.TYPE_VOICE_INTERACTION_STA
 import static android.view.WindowManager.LayoutParams.TYPE_WALLPAPER;
 import static android.view.WindowManager.LayoutParams.isSystemAlertWindowType;
 import static android.view.WindowManager.ScreenshotSource.SCREENSHOT_KEY_OTHER;
+import static android.view.WindowManager.TAKE_SCREENSHOT_FULLSCREEN;
+import static android.view.WindowManager.TAKE_SCREENSHOT_SELECTED_REGION;
 import static android.view.WindowManagerGlobal.ADD_OKAY;
 import static android.view.WindowManagerGlobal.ADD_PERMISSION_DENIED;
 import static android.view.contentprotection.flags.Flags.createAccessibilityOverlayAppOpEnabled;
@@ -112,6 +114,8 @@ import static com.android.server.policy.WindowManagerPolicy.WindowManagerFuncs.L
 import static com.android.server.policy.WindowManagerPolicy.WindowManagerFuncs.LID_OPEN;
 import static com.android.systemui.shared.Flags.enableLppAssistInvocationEffect;
 import static com.android.systemui.shared.Flags.enableLppAssistInvocationHapticEffect;
+
+import static com.android.internal.util.luminedroid.DeviceKeysConstants.Action;
 
 import android.accessibilityservice.AccessibilityService;
 import android.annotation.NonNull;
@@ -148,6 +152,8 @@ import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.database.ContentObserver;
 import android.graphics.Rect;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraManager;
 import android.hardware.SensorPrivacyManager;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.DisplayManagerInternal;
@@ -212,6 +218,7 @@ import android.view.DisplayInfo;
 import android.view.HapticFeedbackConstants;
 import android.view.IDisplayFoldListener;
 import android.view.InputDevice;
+import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.KeyboardShortcutGroup;
 import android.view.MotionEvent;
@@ -237,6 +244,8 @@ import com.android.internal.logging.nano.MetricsProto;
 import com.android.internal.os.DeviceKeyHandler;
 import com.android.internal.os.RoSystemProperties;
 import com.android.internal.policy.IKeyguardDismissCallback;
+import com.android.internal.statusbar.IStatusBarService;
+import com.android.internal.util.luminedroid.ActionUtils;
 import com.android.internal.policy.IKeyguardService;
 import com.android.internal.policy.IShortcutService;
 import com.android.internal.policy.KeyInterceptionInfo;
@@ -785,6 +794,12 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     private SwipeToScreenshotListener mSwipeToScreenshot;
     private ScreenshotHelper mScreenshotHelper;
 
+    private Action mCornerLongSwipeAction = Action.SEARCH;
+    private Action mEdgeLongSwipeAction = Action.NOTHING;
+    private boolean mLongSwipeDown;
+    private boolean mTorchEnabled;
+    private String mRearFlashCameraId;
+
     private boolean mHasAlertSlider = false;
 
     private PocketManager mPocketManager;
@@ -1006,6 +1021,12 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                     UserHandle.USER_ALL);
             resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.LOCKSCREEN_ENABLE_POWER_MENU), true, this,
+                    UserHandle.USER_ALL);
+            resolver.registerContentObserver(Settings.System.getUriFor(
+                    Settings.System.KEY_CORNER_LONG_SWIPE_ACTION), false, this,
+                    UserHandle.USER_ALL);
+            resolver.registerContentObserver(Settings.System.getUriFor(
+                    Settings.System.KEY_EDGE_LONG_SWIPE_ACTION), false, this,
                     UserHandle.USER_ALL);
             updateSettings();
         }
@@ -3233,6 +3254,13 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                     Settings.System.LOCKSCREEN_ENABLE_POWER_MENU, 1,
                     UserHandle.USER_CURRENT) != 0;
 
+            mCornerLongSwipeAction = Action.fromSettings(resolver,
+                    Settings.System.KEY_CORNER_LONG_SWIPE_ACTION,
+                    Action.SEARCH);
+            mEdgeLongSwipeAction = Action.fromSettings(resolver,
+                    Settings.System.KEY_EDGE_LONG_SWIPE_ACTION,
+                    Action.NOTHING);
+
             kidsModeEnabled = Settings.Secure.getIntForUser(resolver,
                     Settings.Secure.NAV_BAR_KIDS_MODE, 0, UserHandle.USER_CURRENT) == 1;
             if (mKidsModeEnabled != kidsModeEnabled) {
@@ -4805,8 +4833,26 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         // Handle special keys.
         switch (keyCode) {
             case KeyEvent.KEYCODE_BACK: {
+                boolean isLongSwipe = (event.getFlags() & KeyEvent.FLAG_LONG_SWIPE) != 0;
                 notifyKeyGestureCompletedOnActionUp(event,
                         KeyGestureEvent.KEY_GESTURE_TYPE_BACK);
+
+                if (mLongSwipeDown && isLongSwipe && !down) {
+                    // Trigger long swipe action
+                    performKeyAction(mEdgeLongSwipeAction, event);
+                    // Reset long swipe state
+                    mLongSwipeDown = false;
+                    // Don't pass back press to app
+                    result &= ~ACTION_PASS_TO_USER;
+                    break;
+                }
+                mLongSwipeDown = isLongSwipe && down;
+                if (mLongSwipeDown) {
+                    // Don't pass back press to app
+                    result &= ~ACTION_PASS_TO_USER;
+                    break;
+                }
+
                 if (down) {
                     // There may have other embedded activities on the same Task. Try to move the
                     // focus before processing the back event.
@@ -4820,6 +4866,26 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                     if (mBackKeyHandled) {
                         result &= ~ACTION_PASS_TO_USER;
                     }
+                }
+                break;
+            }
+
+            case KeyEvent.KEYCODE_HOME: {
+                boolean isLongSwipe = (event.getFlags() & KeyEvent.FLAG_LONG_SWIPE) != 0;
+                if (mLongSwipeDown && isLongSwipe && !down) {
+                    // Trigger long swipe action
+                    performKeyAction(mCornerLongSwipeAction, event);
+                    // Reset long swipe state
+                    mLongSwipeDown = false;
+                    // Don't pass back press to app
+                    result &= ~ACTION_PASS_TO_USER;
+                    break;
+                }
+                mLongSwipeDown = isLongSwipe && down;
+                if (mLongSwipeDown) {
+                    // Don't pass back press to app
+                    result &= ~ACTION_PASS_TO_USER;
+                    break;
                 }
                 break;
             }
@@ -7407,6 +7473,204 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     private void takeScreenshot(int source)
     {
         mScreenshotHelper.takeScreenshot(source, mHandler, null);
+    }
+
+    private void toggleSplitScreen() {
+        StatusBarManagerInternal statusbar = getStatusBarManagerInternal();
+        if (statusbar != null) {
+            statusbar.toggleSplitScreen();
+        }
+    }
+
+    private void toggleQsPanel() {
+        IStatusBarService statusBarService = getStatusBarService();
+        if (statusBarService != null) {
+            try {
+                statusBarService.expandSettingsPanel(null);
+            } catch (RemoteException e) {
+                // do nothing.
+            }
+        }
+    }
+
+    private void clearAllNotifications() {
+        IStatusBarService statusBarService = getStatusBarService();
+        if (statusBarService != null) {
+            try {
+                statusBarService.onClearAllNotifications(ActivityManager.getCurrentUser());
+            } catch (RemoteException e) {
+                // do nothing.
+            }
+        }
+    }
+
+    private void toggleVolumePanel() {
+        AudioManager am = (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE);
+        if (am != null) {
+            am.adjustVolume(AudioManager.ADJUST_SAME, AudioManager.FLAG_SHOW_UI);
+        }
+    }
+
+    private void toggleRingerModes() {
+        AudioManager am = (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE);
+        if (am == null) return;
+        switch (am.getRingerMode()) {
+            case AudioManager.RINGER_MODE_NORMAL:
+                if (mVibrator != null && mVibrator.hasVibrator()) {
+                    am.setRingerMode(AudioManager.RINGER_MODE_VIBRATE);
+                }
+                break;
+            case AudioManager.RINGER_MODE_VIBRATE:
+                am.setRingerMode(AudioManager.RINGER_MODE_NORMAL);
+                NotificationManager nm = getNotificationService();
+                if (nm != null) {
+                    nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_PRIORITY);
+                }
+                break;
+            case AudioManager.RINGER_MODE_SILENT:
+                am.setRingerMode(AudioManager.RINGER_MODE_NORMAL);
+                break;
+        }
+    }
+
+    private void triggerAmbientDisplay() {
+        Intent intent = new Intent("com.android.systemui.doze.pulse");
+        intent.setPackage("com.android.systemui");
+        mContext.sendBroadcastAsUser(intent, new UserHandle(UserHandle.USER_CURRENT));
+    }
+
+    private void showSystemPopupFromGesture() {
+        Intent intent = new Intent("com.android.systemui.action.SHOW_SYSTEM_ICONS_POPUP");
+        intent.setPackage("com.android.systemui");
+        intent.putExtra("at_bottom", true);
+        mContext.sendBroadcastAsUser(intent, new UserHandle(UserHandle.USER_CURRENT));
+    }
+
+    private void launchCameraAction() {
+        sendCloseSystemWindows();
+        Intent intent = new Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        mContext.startActivityAsUser(intent, UserHandle.CURRENT);
+    }
+
+    private void toggleTorch() {
+        try {
+            CameraManager cameraManager = mContext.getSystemService(CameraManager.class);
+            if (cameraManager == null) return;
+            if (mRearFlashCameraId == null) {
+                for (final String id : cameraManager.getCameraIdList()) {
+                    CameraCharacteristics c = cameraManager.getCameraCharacteristics(id);
+                    Boolean flashAvailable = c.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
+                    Integer lensFacing = c.get(CameraCharacteristics.LENS_FACING);
+                    if (flashAvailable != null && flashAvailable
+                            && lensFacing != null && lensFacing == CameraCharacteristics.LENS_FACING_BACK) {
+                        mRearFlashCameraId = id;
+                        break;
+                    }
+                }
+            }
+            if (mRearFlashCameraId != null) {
+                mTorchEnabled = !mTorchEnabled;
+                cameraManager.setTorchMode(mRearFlashCameraId, mTorchEnabled);
+            }
+        } catch (Exception e) {
+            // Ignore
+        }
+    }
+
+    private void triggerVirtualKeypress(final int keyCode) {
+        long now = SystemClock.uptimeMillis();
+        final KeyEvent downEvent = new KeyEvent(now, now, KeyEvent.ACTION_DOWN,
+                keyCode, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0,
+                KeyEvent.FLAG_FROM_SYSTEM, InputDevice.SOURCE_KEYBOARD);
+        final KeyEvent upEvent = KeyEvent.changeAction(downEvent, KeyEvent.ACTION_UP);
+
+        mInputManager.injectInputEvent(downEvent, InputManager.INJECT_INPUT_EVENT_MODE_ASYNC);
+        mInputManager.injectInputEvent(upEvent, InputManager.INJECT_INPUT_EVENT_MODE_ASYNC);
+    }
+
+    private void performKeyAction(Action action, KeyEvent event) {
+        performKeyAction(action, event, AssistUtils.INVOCATION_TYPE_UNKNOWN);
+    }
+
+    private void performKeyAction(Action action, KeyEvent event, int assistInvocationType) {
+        if (action == null) return;
+        switch (action) {
+            case NOTHING:
+                break;
+            case MENU:
+                triggerVirtualKeypress(KeyEvent.KEYCODE_MENU);
+                break;
+            case APP_SWITCH:
+                toggleRecentApps();
+                notifyKeyGestureCompleted(event, KeyGestureEvent.KEY_GESTURE_TYPE_APP_SWITCH);
+                break;
+            case SEARCH:
+                launchAssistAction(null, event.getDeviceId(), event.getDisplayId(),
+                       event.getEventTime(), assistInvocationType);
+                notifyKeyGestureCompleted(event, KeyGestureEvent.KEY_GESTURE_TYPE_LAUNCH_ASSISTANT);
+                break;
+            case VOICE_SEARCH:
+                launchVoiceAssist(mAllowStartActivityForLongPressOnPowerDuringSetup);
+                break;
+            case IN_APP_SEARCH:
+                triggerVirtualKeypress(KeyEvent.KEYCODE_SEARCH);
+                break;
+            case LAUNCH_CAMERA:
+                launchCameraAction();
+                break;
+            case SLEEP:
+                mPowerManager.goToSleep(SystemClock.uptimeMillis());
+                break;
+            case LAST_APP:
+                ActionUtils.switchToLastApp(mContext, mCurrentUserId);
+                break;
+            case SPLIT_SCREEN:
+                toggleSplitScreen();
+                break;
+            case KILL_APP:
+                ActionUtils.killForegroundApp(mContext, mCurrentUserId);
+                break;
+            case PLAY_PAUSE_MUSIC:
+                triggerVirtualKeypress(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE);
+                break;
+            case TORCH:
+                toggleTorch();
+                break;
+            case SCREENSHOT:
+                mScreenshotHelper.takeScreenshot(TAKE_SCREENSHOT_FULLSCREEN,
+                        SCREENSHOT_KEY_OTHER, mHandler, null);
+                notifyKeyGestureCompleted(event, KeyGestureEvent.KEY_GESTURE_TYPE_TAKE_SCREENSHOT);
+                break;
+            case PARTIAL_SCREENSHOT:
+                mScreenshotHelper.takeScreenshot(TAKE_SCREENSHOT_SELECTED_REGION,
+                        SCREENSHOT_KEY_OTHER, mHandler, null);
+                notifyKeyGestureCompleted(event, KeyGestureEvent.KEY_GESTURE_TYPE_TAKE_SCREENSHOT);
+                break;
+            case VOLUME_PANEL:
+                toggleVolumePanel();
+                break;
+            case CLEAR_ALL_NOTIFICATIONS:
+                clearAllNotifications();
+                break;
+            case NOTIFICATIONS:
+                toggleNotificationPanel();
+                break;
+            case QS_PANEL:
+                toggleQsPanel();
+                break;
+            case RINGER_MODES:
+                toggleRingerModes();
+                break;
+            case AMBIENT_DISPLAY:
+                triggerAmbientDisplay();
+                break;
+            case SYSTEM_POPUP:
+                showSystemPopupFromGesture();
+                break;
+            default:
+                break;
+        }
     }
 
     private void releaseMemoryAtScreenOn() {

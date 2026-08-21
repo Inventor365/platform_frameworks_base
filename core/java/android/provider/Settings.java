@@ -7084,6 +7084,48 @@ public final class Settings {
          public static final String NAVIGATION_BAR_HINT = "navigation_bar_hint";
 
         /**
+         * Auto-hide navigation hint bar
+         * @hide
+         */
+        public static final String GESTURE_NAVBAR_AUTO_HIDE = "gesture_navbar_auto_hide";
+
+        /**
+         * Length of gesture navbar
+         * @hide
+         */
+        public static final String GESTURE_NAVBAR_LENGTH_MODE = "gesture_navbar_length_mode";
+
+        /**
+         * Height/radius of gesture navbar
+         * @hide
+         */
+        public static final String GESTURE_NAVBAR_HEIGHT_MODE = "gesture_navbar_height_mode";
+
+        /**
+         * Back gesture height
+         * @hide
+         */
+        public static final String BACK_GESTURE_HEIGHT = "back_gesture_height";
+
+        /**
+         * Action for corner swipe gesture
+         * @hide
+         */
+        public static final String KEY_CORNER_LONG_SWIPE_ACTION = "key_corner_long_swipe_action";
+
+        /**
+         * Action for edge long swipe gesture
+         * @hide
+         */
+        public static final String KEY_EDGE_LONG_SWIPE_ACTION = "key_edge_long_swipe_action";
+
+        /**
+         * Force show navigation bar
+         * @hide
+         */
+        public static final String FORCE_SHOW_NAVBAR = "force_show_navbar";
+
+        /**
          * @hide
          */
         public static final String SCREENSHOT_SHUTTER_SOUND = "screenshot_shutter_sound";
@@ -13577,6 +13619,30 @@ public final class Settings {
         @Readable
         public static final String BACK_GESTURE_INSET_SCALE_RIGHT =
                 "back_gesture_inset_scale_right";
+
+        /**
+         * Whether back gesture arrow animation is enabled.
+         * @hide
+         */
+        public static final String BACK_GESTURE_ARROW = "back_gesture_arrow";
+
+        /**
+         * Whether back gesture background is displayed.
+         * @hide
+         */
+        public static final String SHOW_BACK_GESTURE_BACKGROUND = "show_back_gesture_background";
+
+        /**
+         * Whether back gesture haptic feedback is enabled.
+         * @hide
+         */
+        public static final String BACK_GESTURE_HAPTIC = "back_gesture_haptic";
+
+        /**
+         * Show IME space / keyboard switcher in gesture navbar.
+         * @hide
+         */
+        public static final String NAVBAR_IME_SPACE = "navbar_ime_space";
 
         /**
          * Current provider of proximity-based sharing services.
