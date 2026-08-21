@@ -29,7 +29,6 @@ import com.android.systemui.qs.tiles.SyncTile
 import com.android.systemui.qs.tiles.UsbTetherTile
 import com.android.systemui.qs.tiles.VolumeQSTile
 import com.android.systemui.qs.tiles.VpnTile
-import com.android.systemui.qs.tiles.WifiTileLegacy
 import com.android.systemui.qs.tiles.base.shared.model.QSTileConfig;
 import com.android.systemui.qs.tiles.base.shared.model.QSTilePolicy;
 import com.android.systemui.qs.tiles.base.shared.model.QSTileUIConfig;
@@ -96,12 +95,6 @@ interface LumineModule {
     @IntoMap
     @StringKey(VpnTile.TILE_SPEC)
     fun bindVpnTile(vpnTile: VpnTile): QSTileImpl<*>
-
-    /** Inject WifiTileLegacy into tileMap in QSModule */
-    @Binds
-    @IntoMap
-    @StringKey(WifiTileLegacy.TILE_SPEC)
-    fun bindWifiTileLegacy(wifiTileLegacy: WifiTileLegacy): QSTileImpl<*>
 
     companion object {
         @Provides
@@ -238,20 +231,5 @@ interface LumineModule {
                 instanceId = uiEventLogger.getNewInstanceId(),
                 category = TileCategory.CONNECTIVITY,
             )
-
-        @Provides
-        @IntoMap
-        @StringKey(WifiTileLegacy.TILE_SPEC)
-        fun provideWifiTileLegacyConfig(uiEventLogger: QsEventLogger): QSTileConfig {
-            return QSTileConfig(
-                tileSpec = TileSpec.create(WifiTileLegacy.TILE_SPEC),
-                uiConfig = QSTileUIConfig.Resource(
-                    iconRes = com.android.internal.R.drawable.ic_wifi_signal_0,
-                    labelRes = R.string.quick_settings_wifi_label
-                ),
-                instanceId = uiEventLogger.getNewInstanceId(),
-                category = TileCategory.CONNECTIVITY
-            )
-        }
     }
 }
