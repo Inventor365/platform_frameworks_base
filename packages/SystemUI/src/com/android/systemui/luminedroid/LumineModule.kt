@@ -25,7 +25,6 @@ import com.android.systemui.qs.tiles.AODTile
 import com.android.systemui.qs.tiles.CaffeineTile
 import com.android.systemui.qs.tiles.CellularTileLegacy
 import com.android.systemui.qs.tiles.HeadsUpTile
-import com.android.systemui.qs.tiles.PowerProfileTile
 import com.android.systemui.qs.tiles.SyncTile
 import com.android.systemui.qs.tiles.UsbTetherTile
 import com.android.systemui.qs.tiles.VolumeQSTile
@@ -72,12 +71,6 @@ interface LumineModule {
     @IntoMap
     @StringKey(HeadsUpTile.TILE_SPEC)
     fun bindHeadsUpTile(headsUpTile: HeadsUpTile): QSTileImpl<*>
-
-    /** Inject PowerProfileTile into tileMap in QSModule */
-    @Binds
-    @IntoMap
-    @StringKey(PowerProfileTile.TILE_SPEC)
-    fun bindPowerProfileTile(powerProfileTile: PowerProfileTile): QSTileImpl<*>
 
     /** Inject SyncTile into tileMap in QSModule */
     @Binds
@@ -178,21 +171,6 @@ interface LumineModule {
                 category = TileCategory.DISPLAY
             )
         }
-
-        @Provides
-        @IntoMap
-        @StringKey(PowerProfileTile.TILE_SPEC)
-        fun providePowerProfileTileConfig(uiEventLogger: QsEventLogger): QSTileConfig =
-            QSTileConfig(
-                tileSpec = TileSpec.create(PowerProfileTile.TILE_SPEC),
-                uiConfig =
-                    QSTileUIConfig.Resource(
-                        iconRes = R.drawable.ic_power_default,
-                        labelRes = R.string.powerprofile_title
-                    ),
-                instanceId = uiEventLogger.getNewInstanceId(),
-                category = TileCategory.UTILITIES,
-            )
 
         @Provides
         @IntoMap
